@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixelAgent Demo App</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/icon.svg">
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #d1d5db;
+    --bg: #f9fafb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+  }
+  header {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
+  }
+  header h1 { margin: 0 0 0.5rem; font-size: 1.25rem; }
+  nav a {
+    margin-right: 1rem;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  nav a:hover { text-decoration: underline; }
+  main { max-width: 860px; margin: 0 auto; padding: 1.5rem; }
+  section.card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  section.card h2 { margin-top: 0; }
+  .field { margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .field label { font-weight: 600; font-size: 0.9rem; }
+  .field input[type="text"], .field input[type="email"], .field select, .field textarea {
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 1rem;
+  }
+  .field-checkbox { flex-direction: row; align-items: center; }
+  .field-checkbox label { font-weight: normal; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-success { background: #dcfce7; color: #166534; }
+  .badge-warning { background: #fef9c3; color: #854d0e; }
+  .badge-error { background: #fee2e2; color: #991b1b; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+  .item-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    background: #fff;
+  }
+  .item-card h3 { margin-top: 0; }
+  dialog {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 360px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+  .icon { width: 1.1em; height: 1.1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Example App</h1>
+  <nav aria-label="Main navigation">
+    <a href="#start">Start</a>
+    <a href="#form">Form</a>
+    <a href="#table">Table</a>
+    <a href="#cards">Cards</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card" id="start-view" aria-labelledby="start-heading">
+    <h2 id="start-heading">Start</h2>
+    <p>Welcome to the PixelAgent demo app. Use the navigation to switch between views.</p>
+    <button class="btn btn-primary" type="button">Get Started</button>
+    <button class="btn btn-primary" type="button" data-testid="cta-secondary">Learn More</button>
+    <button class="btn btn-primary" type="button" id="open-dialog-btn">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="11"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      Show Info
+    </button>
+    <dialog id="info-dialog" aria-labelledby="dialog-heading">
+      <h2 id="dialog-heading">Information</h2>
+      <p>This is an example dialog in the demo app.</p>
+      <button class="btn btn-primary" type="button" id="close-dialog-btn">Close</button>
+    </dialog>
+  </section>
+
+  <section class="card" id="form-view" aria-labelledby="form-heading" hidden>
+    <h2 id="form-heading">Form</h2>
+    <form id="demo-form">
+      <div class="field">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" placeholder="Jane Doe">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="jane@example.com">
+      </div>
+      <div class="field">
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="general">General</option>
+          <option value="support">Support</option>
+          <option value="feedback">Feedback</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" placeholder="Your message…" rows="4"></textarea>
+      </div>
+      <div class="field field-checkbox">
+        <input type="checkbox" id="consent" name="consent">
+        <label for="consent">I agree to the processing of my data</label>
+      </div>
+      <button class="btn btn-primary" type="submit">Submit</button>
+    </form>
+  </section>
+
+  <section class="card" id="table-view" aria-labelledby="table-heading" hidden>
+    <h2 id="table-heading">Table</h2>
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Anna Example</td><td><span class="badge badge-success">Active</span></td><td>Admin</td></tr>
+        <tr><td>Ben Sample</td><td><span class="badge badge-warning">Pending</span></td><td>User</td></tr>
+        <tr><td>Clara Test</td><td><span class="badge badge-error">Inactive</span></td><td>User</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card" id="cards-view" aria-labelledby="cards-heading" hidden>
+    <h2 id="cards-heading">Cards</h2>
+    <div class="cards">
+      <article class="item-card">
+        <h3>Card One</h3>
+        <p>Description of the first card.</p>
+        <span class="badge badge-success">New</span>
+        <button class="btn btn-primary" type="button">Open</button>
+      </article>
+      <article class="item-card">
+        <h3>Card Two</h3>
+        <p>Description of the second card.</p>
+        <span class="badge badge-warning">Beta</span>
+        <button class="btn btn-primary" type="button">Open</button>
+      </article>
+      <article class="item-card">
+        <h3>Card Three</h3>
+        <p>Description of the third card.</p>
+        <span class="badge badge-error">Deprecated</span>
+        <button class="btn btn-primary" type="button">Open</button>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script>
+  (function () {
+    var views = {
+      '#start': 'start-view',
+      '#form': 'form-view',
+      '#table': 'table-view',
+      '#cards': 'cards-view'
+    };
+
+    function showView() {
+      var hash = window.location.hash || '#start';
+      var activeId = views[hash] || 'start-view';
+      Object.keys(views).forEach(function (key) {
+        var id = views[key];
+        document.getElementById(id).hidden = id !== activeId;
+      });
+    }
+
+    window.addEventListener('hashchange', showView);
+    showView();
+
+    var dialog = document.getElementById('info-dialog');
+    document.getElementById('open-dialog-btn').addEventListener('click', function () {
+      dialog.showModal();
+    });
+    document.getElementById('close-dialog-btn').addEventListener('click', function () {
+      dialog.close();
+    });
+
+    document.getElementById('demo-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+    });
+  })();
+</script>
+
+<script>
+  if (window.location.search.indexOf('standalone') !== -1) {
+    var overlayScript = document.createElement('script');
+    overlayScript.type = 'module';
+    overlayScript.src = '/src/overlay/index.js';
+    document.body.appendChild(overlayScript);
+  }
+</script>
+</body>
+</html>

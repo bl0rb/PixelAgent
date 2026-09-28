@@ -1,0 +1,110 @@
+name: PR CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  # Lets the release workflow call this as a gate before publishing.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # jsdom (a dev dependency for the overlay tests) needs Node >= 22.22.
+        node-version: ["22", "24"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fails the build on a known-vulnerable dependency instead of leaving it
+      # to whoever happens to run `npm audit` by hand.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Run tests
+        run: npm test
+
+  mac-app:
+    name: macOS App Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS app
+        run: npm run app
+
+      - name: Lint Info.plist
+        run: plutil -lint dist/PixelAgent.app/Contents/Info.plist
+
+      - name: Verify ad-hoc code signature
+        run: codesign --verify --deep --strict dist/PixelAgent.app
+
+      # Building the .app is not enough: run the bundled runtime the way the
+      # AppleScript wrapper does, and confirm it answers and shuts down
+      # cleanly on POST /__uce/quit (this is what "on quit" relies on).
+      - name: Smoke-test the bundled runtime
+        run: |
+          node dist/PixelAgent.app/Contents/Resources/pixelagent/bin/pixelagent.js --no-open --port 4455 \
+            > /tmp/pixelagent-smoke.log 2>&1 &
+          pid=$!
+
+          ok=""
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:4455/__uce/state > /dev/null; then ok=1; break; fi
+            sleep 0.5
+          done
+          cat /tmp/pixelagent-smoke.log
+          [ "$ok" = "1" ]
+
+          curl -sf -X POST -H 'Origin: http://localhost:4455' http://localhost:4455/__uce/quit
+
+          exited=""
+          for i in $(seq 1 20); do
+            if ! kill -0 "$pid" 2>/dev/null; then exited=1; break; fi
+            sleep 0.5
+          done
+          if [ "$exited" != "1" ]; then
+            echo "pixelagent.js did not exit after /__uce/quit"
+            kill -9 "$pid" 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Package app bundle
+        run: ditto -c -k --keepParent dist/PixelAgent.app PixelAgent-macos.zip
+
+      - name: Upload app bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: PixelAgent-macos
+          path: PixelAgent-macos.zip

@@ -1,0 +1,21 @@
+{
+  "name": "pixelagent",
+  "version": "0.1.0",
+  "description": "Overlay editor for running web apps, generates ui-changes.md for coding agents",
+  "type": "module",
+  "bin": {
+    "pixelagent": "bin/pixelagent.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node examples/serve.js",
+    "app": "node scripts/make-app.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}
