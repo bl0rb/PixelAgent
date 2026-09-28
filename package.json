@@ -1,6 +1,6 @@
 {
   "name": "pixelagent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Overlay editor for running web apps, generates ui-changes.md for coding agents",
   "type": "module",
   "bin": {
