@@ -398,3 +398,55 @@ test('accessible name of a wrapped control ignores tooltips and nested options',
     <select id="m"><option>Offen</option></select></label>`);
   assert.equal(getAccessibleName(window.document.getElementById('m')), 'Anmeldemodus');
 });
+
+// --- accessible name: new explicit sources (details/fieldset/table/figure) ---
+
+test('getAccessibleName uses details > summary', () => {
+  const { window } = new JSDOM('<details><summary>Mehr anzeigen</summary><p>Inhalt</p></details>');
+  assert.equal(getAccessibleName(window.document.querySelector('details')), 'Mehr anzeigen');
+});
+
+test('getAccessibleName uses fieldset > legend', () => {
+  const { window } = new JSDOM('<fieldset><legend>Zeitraum</legend><input /></fieldset>');
+  assert.equal(getAccessibleName(window.document.querySelector('fieldset')), 'Zeitraum');
+});
+
+test('getAccessibleName uses table > caption', () => {
+  const { window } = new JSDOM('<table><caption>Nutzung</caption><tr><td>1</td></tr></table>');
+  assert.equal(getAccessibleName(window.document.querySelector('table')), 'Nutzung');
+});
+
+test('getAccessibleName uses figure > figcaption', () => {
+  const { window } = new JSDOM('<figure><img src="x.png"><figcaption>Diagramm</figcaption></figure>');
+  assert.equal(getAccessibleName(window.document.querySelector('figure')), 'Diagramm');
+});
+
+test('getAccessibleName strips a trailing colon from a label-derived name', () => {
+  const { window } = new JSDOM('<label for="f">Zeitraum:</label><input id="f" />');
+  assert.equal(getAccessibleName(window.document.getElementById('f')), 'Zeitraum');
+});
+
+// --- accessible name: name-from-content restricted to specific roles/tags ---
+
+test('getAccessibleName returns "" for a generic container (div) with only text content', () => {
+  const { window } = new JSDOM('<div>Nur Text, kein zugelassenes Element</div>');
+  assert.equal(getAccessibleName(window.document.querySelector('div')), '');
+});
+
+test('getAccessibleName returns "" for a table without a caption', () => {
+  const { window } = new JSDOM('<table><tr><td>1</td></tr></table>');
+  assert.equal(getAccessibleName(window.document.querySelector('table')), '');
+});
+
+test('getAccessibleName returns "" for details without a summary', () => {
+  const { window } = new JSDOM('<details><p>Inhalt</p></details>');
+  assert.equal(getAccessibleName(window.document.querySelector('details')), '');
+});
+
+test('getAccessibleName still uses visible text for allowed tags/roles (span, a, heading)', () => {
+  const { window } = new JSDOM('<span id="s">Hallo</span><a id="a" href="#x">Link</a><h2 id="h">Titel</h2>');
+  const d = window.document;
+  assert.equal(getAccessibleName(d.getElementById('s')), 'Hallo');
+  assert.equal(getAccessibleName(d.getElementById('a')), 'Link');
+  assert.equal(getAccessibleName(d.getElementById('h')), 'Titel');
+});
