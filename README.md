@@ -155,6 +155,14 @@ Markdown plus a JSON appendix, machine-readable for agents:
 Every change includes a selector, an HTML snippet, and a breadcrumb for
 reliable identification.
 
+Changes are grouped by view (the page path + hash they belong to); the group
+heading is skipped when the whole export is a single view. Numbers in the
+Markdown headings always match the JSON `id`s — both are renumbered `1…n` in
+export order (grouped by view, stable order within a group) when the file is
+written, regardless of gaps left by deleted or merged changes in the editor's
+internal state. Each change states *what* to change before *where* to find
+it (selector, HTML snippet, breadcrumb).
+
 ## How the proxy works
 
 1. **Injection**: `<script src="/__uce/overlay.js">` is inserted before `</body>`
@@ -175,9 +183,10 @@ The overlay and the launcher page are available in English and German. The
 language is auto-detected from the browser (`navigator.language`) and can be
 switched with a toggle in the overlay toolbar and on the launcher page; the
 choice is stored in `localStorage` and shared between both. Markdown export
-(`ui-changes.md`) follows the UI language at the time of export. Server-side
-texts (error messages, the 502 page) follow the browser's `Accept-Language`
-header. CLI output is English only.
+(`ui-changes.md`) is always English, regardless of the UI language, since it
+is meant to be read by coding agents. Server-side texts (error messages, the
+502 page) follow the browser's `Accept-Language` header. CLI output is
+English only.
 
 ## Snippet for target repos
 

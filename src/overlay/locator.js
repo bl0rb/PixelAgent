@@ -375,9 +375,42 @@ function findAssociatedLabel(el) {
 }
 
 /**
+ * @param {Element} el
+ * @param {string} tag
+ */
+function directChild(el, tag) {
+  for (const child of el.children) {
+    if (tagOf(child) === tag) return child;
+  }
+  return null;
+}
+
+/** @param {string} s */
+function stripTrailingColon(s) {
+  return s.replace(/:\s*$/, '');
+}
+
+/** Roles for which the visible text content counts as the accessible name. */
+const NAME_FROM_CONTENT_ROLES = new Set([
+  'button', 'link', 'heading', 'cell', 'columnheader', 'rowheader',
+  'option', 'tab', 'menuitem', 'treeitem', 'switch', 'tooltip',
+]);
+
+/** Tags for which the visible text content counts as the accessible name, regardless of role. */
+const NAME_FROM_CONTENT_TAGS = new Set([
+  'label', 'legend', 'summary', 'caption', 'figcaption',
+  'th', 'td', 'dt', 'span', 'strong', 'em', 'b', 'i', 'small', 'p', 'a',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+]);
+
+/**
  * Accessible name (simplified): aria-label → aria-labelledby → associated or
- * wrapping <label> → alt (img) / value (input button/submit) → visible text
- * → title/placeholder. Whitespace normalized.
+ * wrapping <label> (input/select/textarea) / summary (details) / legend
+ * (fieldset) / caption (table) / figcaption (figure) → alt (img) / value
+ * (input button/submit) → visible text (only for a fixed set of
+ * content-bearing roles/tags — generic containers get no name from content)
+ * → title/placeholder. Whitespace normalized; a trailing ':' is stripped
+ * from label-derived names.
  * @param {Element} el
  * @returns {string}
  */
@@ -405,7 +438,35 @@ export function getAccessibleName(el) {
     const label = findAssociatedLabel(el);
     if (label) {
       const t = getVisibleText(label);
-      if (t) return normalizeWs(t);
+      if (t) return stripTrailingColon(t);
+    }
+  }
+  if (tag === 'details') {
+    const summary = directChild(el, 'summary');
+    if (summary) {
+      const t = getVisibleText(summary);
+      if (t) return stripTrailingColon(t);
+    }
+  }
+  if (tag === 'fieldset') {
+    const legend = directChild(el, 'legend');
+    if (legend) {
+      const t = getVisibleText(legend);
+      if (t) return stripTrailingColon(t);
+    }
+  }
+  if (tag === 'table') {
+    const caption = directChild(el, 'caption');
+    if (caption) {
+      const t = getVisibleText(caption);
+      if (t) return stripTrailingColon(t);
+    }
+  }
+  if (tag === 'figure') {
+    const figcaption = directChild(el, 'figcaption');
+    if (figcaption) {
+      const t = getVisibleText(figcaption);
+      if (t) return stripTrailingColon(t);
     }
   }
 
@@ -421,8 +482,10 @@ export function getAccessibleName(el) {
     }
   }
 
-  const text = getVisibleText(el);
-  if (text) return text;
+  if (NAME_FROM_CONTENT_ROLES.has(getRole(el)) || NAME_FROM_CONTENT_TAGS.has(tag)) {
+    const text = getVisibleText(el);
+    if (text) return text;
+  }
 
   const title = el.getAttribute('title');
   if (title && title.trim()) return normalizeWs(title);

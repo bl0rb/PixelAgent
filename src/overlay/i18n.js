@@ -84,29 +84,6 @@ const MESSAGES = {
 
     'palette.searchPlaceholder': 'Search element …',
     'palette.noResults': 'No matches.',
-
-    'export.location': 'Location',
-    'export.selector': 'Selector',
-    'export.html': 'HTML',
-    'export.before': 'Before',
-    'export.after': 'After',
-    'export.attribute': 'Attribute',
-    'export.newPosition': 'New position',
-    'export.note': 'Note',
-    'export.anchor': 'Anchor',
-    'export.template': 'Template',
-    'export.text': 'Text',
-    'export.copyOf': 'copy of {name}',
-    'export.noChanges': '_No changes._',
-    'export.title': 'UI changes',
-    'export.source': 'Source',
-    'export.instruction':
-      '> **Instructions for the coding agent:** Implement the following changes in the\n' +
-      '> source code. Locate elements via text, selector and HTML snippet. New elements\n' +
-      '> are copies of the named template: same component, same classes, same\n' +
-      '> structure. Use texts exactly as given; if there is an i18n system, add or\n' +
-      '> update keys instead of hard-coding text. Implement only these changes. Ask if\n' +
-      '> anything is ambiguous.',
   },
   de: {
     'toolbar.dragHandle': 'Verschieben',
@@ -182,33 +159,10 @@ const MESSAGES = {
 
     'palette.searchPlaceholder': 'Element suchen …',
     'palette.noResults': 'Keine Treffer.',
-
-    'export.location': 'Ort',
-    'export.selector': 'Selektor',
-    'export.html': 'HTML',
-    'export.before': 'Vorher',
-    'export.after': 'Nachher',
-    'export.attribute': 'Attribut',
-    'export.newPosition': 'Neue Position',
-    'export.note': 'Hinweis',
-    'export.anchor': 'Anker',
-    'export.template': 'Vorlage',
-    'export.text': 'Text',
-    'export.copyOf': 'Kopie von {name}',
-    'export.noChanges': '_Keine Änderungen._',
-    'export.title': 'UI-Änderungen',
-    'export.source': 'Quelle',
-    'export.instruction':
-      '> **Anweisung an den Coding-Agenten:** Setze die folgenden Änderungen im Quellcode\n' +
-      '> um. Finde Elemente über Text, Selektor und HTML-Ausschnitt. Neue Elemente sind\n' +
-      '> Kopien der genannten Vorlage: gleiche Komponente, gleiche Klassen, gleiche\n' +
-      '> Struktur. Texte exakt übernehmen; gibt es ein i18n-System, Keys anlegen bzw.\n' +
-      '> anpassen statt Text hart einzutragen. Nur diese Änderungen umsetzen. Bei\n' +
-      '> Mehrdeutigkeit nachfragen.',
   },
 };
 
-/** Exposed for tests (key-completeness checks) and export.js's lang-aware lookups. */
+/** Exposed for tests (key-completeness checks) and export.js's English-pinned lookups. */
 export const messages = MESSAGES;
 
 /**

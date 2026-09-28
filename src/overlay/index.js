@@ -9,7 +9,7 @@ import { createPanel } from './panel.js';
 import { sync as previewSync, withOriginalDom } from './preview.js';
 import { createPositionTracker } from './position-tracker.js';
 import { openPalettePopover } from './palette-popover.js';
-import { t, getLang } from './i18n.js';
+import { t } from './i18n.js';
 
 /**
  * @typedef {import('./changes.js').State} State
@@ -264,7 +264,7 @@ function initOverlay() {
 
   async function runExport() {
     const doc = buildDocument(state.changes, buildSource());
-    const md = toMarkdown(doc, getLang());
+    const md = toMarkdown(doc);
     try {
       if (proxyMode) {
         const path = await postExport('/__uce/export', md);
@@ -281,7 +281,7 @@ function initOverlay() {
 
   async function runCopy() {
     const doc = buildDocument(state.changes, buildSource());
-    const md = toMarkdown(doc, getLang());
+    const md = toMarkdown(doc);
     try {
       await copyText(md);
       ctx.toast(t('toast.copied'));

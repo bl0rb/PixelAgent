@@ -6,11 +6,10 @@ import { t } from './i18n.js';
 
 /** @typedef {import('./locator.js').Locator} Locator */
 /** @typedef {import('./changes.js').Change} Change */
-/** @typedef {import('./i18n.js').Lang} Lang */
 /** @typedef {{url:string, title:string, viewport:string, createdAt:string}} Source */
 /** @typedef {{version:1, source:Source, changes:Change[]}} Doc */
 
-/** i18n keys for change type labels, identical to panel.js's. */
+/** i18n keys for change type labels, identical to panel.js's. Export text is always English. */
 const TYPE_KEYS = {
   text: 'type.text',
   attr: 'type.attr',
@@ -28,22 +27,39 @@ const POSITION_KEYS = {
   'inside-end': 'position.insideEnd',
 };
 
-/**
- * @param {string} type
- * @param {Lang} lang
- */
-function typeLabel(type, lang) {
+/** Singular/plural nouns for the per-type counts line, e.g. "3 comments, 1 text change". */
+const COUNT_LABELS = {
+  text: ['text change', 'text changes'],
+  attr: ['description change', 'description changes'],
+  move: ['move', 'moves'],
+  insert: ['new element', 'new elements'],
+  remove: ['removal', 'removals'],
+  comment: ['comment', 'comments'],
+};
+
+/** Canonical type order, used to break ties in the counts line. */
+const TYPE_ORDER = ['text', 'attr', 'move', 'insert', 'remove', 'comment'];
+
+const INSTRUCTION =
+  '> **Instructions for the coding agent:** Implement the changes below in the source code.\n' +
+  '> Each change states *what* to do first, then *where*: locate the element via selector,\n' +
+  '> HTML snippet, text and location. Comments are free-text requests (possibly in another\n' +
+  '> language) — apply them to the named element and its immediate context. New elements are\n' +
+  '> copies of the named template: same component, same classes, same structure. Use texts\n' +
+  '> exactly as given; if there is an i18n system, add or update keys instead of hard-coding\n' +
+  '> text. Implement only these changes, ask if anything is ambiguous, and report the status\n' +
+  '> per change number (numbers match the JSON `id`s).';
+
+/** @param {string} type */
+function typeLabel(type) {
   const key = TYPE_KEYS[type];
-  return key ? t(key, undefined, lang) : type;
+  return key ? t(key, undefined, 'en') : type;
 }
 
-/**
- * @param {string} position
- * @param {Lang} lang
- */
-function positionLabel(position, lang) {
+/** @param {string} position */
+function positionLabel(position) {
   const key = POSITION_KEYS[position];
-  return key ? t(key, undefined, lang) : position;
+  return key ? t(key, undefined, 'en') : position;
 }
 
 /** @param {unknown} value */
@@ -52,23 +68,36 @@ function inlineCode(value) {
   return s.includes('`') ? '`` ' + s + ' ``' : '`' + s + '`';
 }
 
-/**
- * Straight quotes in English, „…“ in German.
- * @param {string} text
- * @param {Lang} lang
- */
-function quote(text, lang) {
-  return lang === 'de' ? `„${text}“` : `"${text}"`;
+/** Straight quotes (export is always English). @param {string} text */
+function quote(text) {
+  return `"${text}"`;
+}
+
+/** @param {string|undefined} value */
+function quotedOrEmpty(value) {
+  return value === '' || value == null ? t('common.empty', undefined, 'en') : quote(value);
 }
 
 /**
- * @param {Locator|undefined} loc
- * @param {Lang} lang
+ * True when `selector` is exactly an id selector (`#foo`), not a compound or
+ * descendant selector that merely starts with one.
+ * @param {string} selector
  */
-function subject(loc, lang) {
+function isIdSelector(selector) {
+  return typeof selector === 'string' && /^#(?:[^\s.>+~[\]:,]|\\.)+$/.test(selector);
+}
+
+/**
+ * `tag "name"` → `tag "text"` → `tag#id` → `tag.firstClass` → `tag in {breadcrumb}` → `tag`.
+ * @param {Locator|undefined} loc
+ */
+function subject(loc) {
   if (!loc) return '';
   const tag = loc.tag || '';
-  if (loc.name) return `${tag} ${quote(loc.name, lang)}`;
+  if (loc.name && loc.name.length <= 60) return `${tag} ${quote(loc.name)}`;
+  if (loc.text && loc.text.length <= 40) return `${tag} ${quote(loc.text)}`;
+  if (isIdSelector(loc.selector)) return `${tag}${loc.selector}`;
+  if (loc.classes && loc.classes.length) return `${tag}.${loc.classes[0]}`;
   if (loc.breadcrumb) {
     const parts = loc.breadcrumb.split(' › ');
     return `${tag} in ${parts[parts.length - 1]}`;
@@ -88,140 +117,200 @@ function urlPathPart(url) {
 }
 
 /**
- * @param {Locator} loc
- * @param {Lang} lang
+ * The locator that identifies "where" a change happens: `target` for every
+ * type except `insert`, which has no target and uses its `anchor` instead.
+ * @param {Change} change
+ * @returns {Locator|undefined}
  */
-function ortLine(loc, lang) {
-  const path = urlPathPart(loc.url);
-  const label = t('export.location', undefined, lang);
-  if (loc.breadcrumb && path) return `- ${label}: ${loc.breadcrumb} (${inlineCode(path)})`;
-  if (loc.breadcrumb) return `- ${label}: ${loc.breadcrumb}`;
-  if (path) return `- ${label}: ${inlineCode(path)}`;
-  return null;
+function locatorOf(change) {
+  const c = /** @type {any} */ (change);
+  return c.type === 'insert' ? c.anchor : c.target;
 }
 
 /**
- * @param {Locator} loc
- * @param {Lang} lang
+ * `- Location: …`, `- Selector: …`, `- HTML: …` (Location/HTML omitted when empty).
+ * @param {Locator|undefined} loc
  */
-function targetLines(loc, lang) {
+function whereLines(loc) {
+  if (!loc) return [];
   /** @type {string[]} */
   const lines = [];
-  const ort = ortLine(loc, lang);
-  if (ort) lines.push(ort);
-  lines.push(`- ${t('export.selector', undefined, lang)}: ${inlineCode(loc.selector)}`);
-  if (loc.html) lines.push(`- ${t('export.html', undefined, lang)}: ${inlineCode(loc.html)}`);
+  const path = urlPathPart(loc.url);
+  if (loc.breadcrumb && path) lines.push(`- Location: ${loc.breadcrumb} (${inlineCode(path)})`);
+  else if (loc.breadcrumb) lines.push(`- Location: ${loc.breadcrumb}`);
+  else if (path) lines.push(`- Location: ${inlineCode(path)}`);
+  lines.push(`- Selector: ${inlineCode(loc.selector)}`);
+  if (loc.html) lines.push(`- HTML: ${inlineCode(loc.html)}`);
   return lines;
 }
 
 /**
- * @param {string|undefined} value
- * @param {Lang} lang
+ * "What to do" lines, per change type (comment is handled separately by the caller).
+ * @param {Change} change
  */
-function quotedOrEmpty(value, lang) {
-  return value === '' || value == null ? t('common.empty', undefined, lang) : quote(value, lang);
+function whatLines(change) {
+  const c = /** @type {any} */ (change);
+  switch (c.type) {
+    case 'text':
+      return [`- Before: ${quote(c.before)}`, `- After: ${quote(c.after)}`];
+    case 'attr': {
+      const attrLabel = c.attr === 'label' ? t('common.fieldLabel', undefined, 'en') : inlineCode(c.attr);
+      return [`- Attribute: ${attrLabel}`, `- Before: ${quotedOrEmpty(c.before)}`, `- After: ${quotedOrEmpty(c.after)}`];
+    }
+    case 'move': {
+      const pos = positionLabel(c.position);
+      return [`- Move to: **${pos}** ${subject(c.anchor)} (${inlineCode(c.anchor.selector)})`];
+    }
+    case 'insert': {
+      const pos = positionLabel(c.position);
+      return [
+        `- Text: ${quote(c.text)}`,
+        `- Insert: **${pos}** ${subject(c.anchor)} (${inlineCode(c.anchor.selector)})`,
+        `- Template: ${inlineCode(c.template.selector)} · ${inlineCode(c.template.html)}`,
+      ];
+    }
+    case 'remove':
+    default:
+      return [];
+  }
 }
 
 /**
  * @param {Change} change
- * @param {number} n
- * @param {Lang} lang
+ * @param {number} n heading number (matches the JSON `id`)
+ * @param {string} headingPrefix `##` (no view groups) or `###` (inside a view group)
  */
-function buildBlock(change, n, lang) {
+function buildBlock(change, n, headingPrefix) {
   const c = /** @type {any} */ (change);
-  const label = typeLabel(c.type, lang);
-  /** @type {string[]} */
-  const lines = [];
-  let heading = `## ${n}. ${label} — ${subject(c.target, lang)}`;
+  const label = typeLabel(c.type);
+  const loc = locatorOf(c);
+  const subjectText = c.type === 'insert' ? `copy of ${subject(c.template)}` : subject(loc);
+  const heading = `${headingPrefix} ${n}. ${label} — ${subjectText}`;
+  const where = whereLines(loc);
 
-  switch (c.type) {
-    case 'text':
-      lines.push(...targetLines(c.target, lang));
-      lines.push(`- ${t('export.before', undefined, lang)}: ${quote(c.before, lang)}`);
-      lines.push(`- ${t('export.after', undefined, lang)}: ${quote(c.after, lang)}`);
-      break;
-    case 'attr': {
-      lines.push(...targetLines(c.target, lang));
-      const attrLabel = c.attr === 'label' ? t('common.fieldLabel', undefined, lang) : inlineCode(c.attr);
-      lines.push(`- ${t('export.attribute', undefined, lang)}: ${attrLabel}`);
-      lines.push(`- ${t('export.before', undefined, lang)}: ${quotedOrEmpty(c.before, lang)}`);
-      lines.push(`- ${t('export.after', undefined, lang)}: ${quotedOrEmpty(c.after, lang)}`);
-      break;
-    }
-    case 'move': {
-      lines.push(...targetLines(c.target, lang));
-      const pos = positionLabel(c.position, lang);
-      lines.push(`- ${t('export.newPosition', undefined, lang)}: **${pos}** ${subject(c.anchor, lang)} (${inlineCode(c.anchor.selector)})`);
-      break;
-    }
-    case 'remove':
-      lines.push(...targetLines(c.target, lang));
-      break;
-    case 'comment': {
-      lines.push(...targetLines(c.target, lang));
-      const noteLines = String(c.note).split('\n');
-      lines.push(`- ${t('export.note', undefined, lang)}: ${noteLines[0]}`);
-      for (let i = 1; i < noteLines.length; i++) lines.push(`  ${noteLines[i]}`);
-      break;
-    }
-    case 'insert': {
-      heading = `## ${n}. ${label} — ${t('export.copyOf', { name: subject(c.template, lang) }, lang)}`;
-      const pos = positionLabel(c.position, lang);
-      const anchorBreadcrumb = c.anchor.breadcrumb ? `${c.anchor.breadcrumb}, ` : '';
-      lines.push(`- ${t('export.location', undefined, lang)}: ${anchorBreadcrumb}**${pos}** ${subject(c.anchor, lang)}`);
-      lines.push(`- ${t('export.anchor', undefined, lang)}: ${inlineCode(c.anchor.selector)}`);
-      lines.push(`- ${t('export.template', undefined, lang)}: ${inlineCode(c.template.selector)} · ${inlineCode(c.template.html)}`);
-      lines.push(`- ${t('export.text', undefined, lang)}: ${quote(c.text, lang)}`);
-      break;
-    }
-    default:
-      break;
+  if (c.type === 'comment') {
+    const noteLines = String(c.note).split('\n').map((line) => `> ${line}`);
+    return [heading, ...noteLines, '', ...where].join('\n');
   }
 
-  return [heading, ...lines].join('\n');
+  return [heading, ...whatLines(c), ...where].join('\n');
 }
 
 /**
+ * Groups changes by "view" (path+search+hash of their target/anchor url),
+ * preserving relative order within a group; groups are ordered by first
+ * appearance.
+ * @param {Change[]} changes
+ * @returns {{key:string, changes:Change[]}[]}
+ */
+function groupByView(changes) {
+  /** @type {Map<string, Change[]>} */
+  const map = new Map();
+  for (const c of changes) {
+    const loc = locatorOf(c);
+    const key = urlPathPart(loc && loc.url);
+    const list = map.get(key);
+    if (list) list.push(c);
+    else map.set(key, [c]);
+  }
+  return Array.from(map.entries(), ([key, list]) => ({ key, changes: list }));
+}
+
+/**
+ * First breadcrumb's first segment among a group's changes, if any.
+ * @param {Change[]} changes
+ */
+function firstBreadcrumbSegment(changes) {
+  for (const c of changes) {
+    const loc = locatorOf(c);
+    if (loc && loc.breadcrumb) return loc.breadcrumb.split(' › ')[0];
+  }
+  return '';
+}
+
+/** @param {{key:string, changes:Change[]}} group */
+function groupHeading(group) {
+  const title = firstBreadcrumbSegment(group.changes);
+  return title ? `## ${title} (${inlineCode(group.key)})` : `## ${inlineCode(group.key)}`;
+}
+
+/**
+ * "3 comments, 1 text change", ordered by count (descending), ties broken by
+ * the canonical type order.
+ * @param {Change[]} changes
+ */
+function countsLine(changes) {
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const c of changes) counts[c.type] = (counts[c.type] || 0) + 1;
+  const types = Object.keys(counts).sort((a, b) => {
+    const byCount = counts[b] - counts[a];
+    return byCount !== 0 ? byCount : TYPE_ORDER.indexOf(a) - TYPE_ORDER.indexOf(b);
+  });
+  return types
+    .map((type) => {
+      const n = counts[type];
+      const labels = COUNT_LABELS[type] || [type, `${type}s`];
+      return `${n} ${n === 1 ? labels[0] : labels[1]}`;
+    })
+    .join(', ');
+}
+
+/**
+ * Renumbers `changes` to sequential ids `1…n` in export order (grouped by
+ * view, stable within a group, groups in order of first appearance), so
+ * Markdown section `n` == JSON `id` `n`. Returns copies; `changes` and its
+ * entries are left untouched.
  * @param {Change[]} changes
  * @param {Source} source
  * @returns {Doc}
  */
 export function buildDocument(changes, source) {
-  return { version: 1, source, changes };
+  const groups = groupByView(changes || []);
+  const ordered = groups.flatMap((g) => g.changes);
+  const renumbered = ordered.map((c, i) => ({ ...c, id: i + 1 }));
+  return { version: 1, source, changes: renumbered };
 }
 
 /**
- * `YYYY-MM-DD HH:MM` in English, `DD.MM.YYYY HH:MM` in German, local time.
+ * `YYYY-MM-DD HH:MM`, local time. Export is always English.
  * @param {string} iso
- * @param {Lang} [lang]
  * @returns {string}
  */
-export function formatDate(iso, lang = 'en') {
+export function formatDate(iso) {
   const d = new Date(iso);
   const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  const datePart =
-    lang === 'de'
-      ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`
-      : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return `${datePart} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /**
  * @param {Doc} doc
- * @param {Lang} [lang]
  * @returns {string}
  */
-export function toMarkdown(doc, lang = 'en') {
+export function toMarkdown(doc) {
   const { source, changes } = doc;
-  const title = t('export.title', undefined, lang);
-  const sourceLabel = t('export.source', undefined, lang);
-  const instruction = t('export.instruction', undefined, lang);
-  const header = `# ${title}\n\n${sourceLabel}: ${source.url} · ${formatDate(source.createdAt, lang)} · Viewport ${source.viewport}\n\n${instruction}`;
+  const list = changes || [];
+  const groups = groupByView(list);
+  const multiView = groups.length > 1;
+  const headingPrefix = multiView ? '###' : '##';
 
-  const body =
-    !changes || changes.length === 0
-      ? t('export.noChanges', undefined, lang)
-      : changes.map((c, i) => buildBlock(c, i + 1, lang)).join('\n\n');
+  const totalLabel = `${list.length} change${list.length === 1 ? '' : 's'}`;
+  const counts = list.length ? ` (${countsLine(list)})` : '';
+  const sourceLine = `Source: ${source.url} · ${formatDate(source.createdAt)} · Viewport ${source.viewport} · ${totalLabel}${counts}`;
+  const header = `# UI changes\n\n${sourceLine}\n\n${INSTRUCTION}`;
+
+  let body;
+  if (list.length === 0) {
+    body = '_No changes._';
+  } else {
+    /** @type {string[]} */
+    const sections = [];
+    for (const g of groups) {
+      if (multiView) sections.push(groupHeading(g));
+      for (const c of g.changes) sections.push(buildBlock(c, /** @type {any} */ (c).id, headingPrefix));
+    }
+    body = sections.join('\n\n');
+  }
 
   const jsonBlock = '<details><summary>JSON</summary>\n\n```json\n' + JSON.stringify(doc, null, 2) + '\n```\n</details>';
 
