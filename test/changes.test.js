@@ -241,6 +241,75 @@ test('nextId never decreases across undo or load', () => {
   assert.equal(state.nextId, 3);
 });
 
+// --- import ---
+
+test('import replace swaps in the imported list, renumbered 1…n, nextId = max(nextId, n+1)', () => {
+  let state = createState();
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#a'), note: 'existing' } });
+  const imported = [
+    { id: 99, type: 'comment', target: loc('#x'), note: 'one' },
+    { id: 5, type: 'comment', target: loc('#y'), note: 'two' },
+  ];
+  state = apply(state, { type: 'import', changes: imported, mode: 'replace' });
+  assert.deepEqual(state.changes.map((c) => c.id), [1, 2]);
+  assert.equal(state.changes[0].note, 'one');
+  assert.equal(state.changes[1].note, 'two');
+  assert.equal(state.nextId, 3);
+});
+
+test('import replace keeps nextId at its previous value when it is already higher than n+1', () => {
+  let state = createState();
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#a'), note: '1' } });
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#b'), note: '2' } });
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#c'), note: '3' } });
+  assert.equal(state.nextId, 4);
+  state = apply(state, { type: 'import', changes: [{ id: 1, type: 'comment', target: loc('#z'), note: 'imported' }], mode: 'replace' });
+  assert.equal(state.nextId, 4);
+  assert.equal(state.changes.length, 1);
+});
+
+test('import append runs each change through the add-merge logic with fresh ids', () => {
+  let state = createState();
+  state = apply(state, { type: 'add', change: { type: 'text', target: loc('#save'), before: 'Speichern', after: 'A' } });
+  const imported = [
+    { id: 1, type: 'text', target: loc('#save'), before: 'A', after: 'B' }, // merges into the existing text change
+    { id: 2, type: 'comment', target: loc('#new'), note: 'hi' }, // brand new, fresh id
+  ];
+  state = apply(state, { type: 'import', changes: imported, mode: 'append' });
+  assert.equal(state.changes.length, 2);
+  const textChange = state.changes.find((c) => c.type === 'text');
+  assert.equal(textChange.before, 'Speichern');
+  assert.equal(textChange.after, 'B');
+  const commentChange = state.changes.find((c) => c.type === 'comment');
+  assert.equal(commentChange.id, 2);
+});
+
+test('import is a single undoable action (one undo restores the pre-import state), and clears future', () => {
+  let state = createState();
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#a'), note: 'existing' } });
+  const before = state;
+  state = apply(state, { type: 'import', changes: [{ id: 1, type: 'comment', target: loc('#x'), note: 'one' }, { id: 2, type: 'comment', target: loc('#y'), note: 'two' }], mode: 'append' });
+  assert.equal(state.changes.length, 3);
+  state = apply(state, { type: 'undo' });
+  assert.deepEqual(state.changes, before.changes);
+  state = apply(state, { type: 'redo' });
+  assert.equal(state.changes.length, 3);
+
+  state = apply(state, { type: 'undo' });
+  assert.equal(state.future.length, 1);
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#z'), note: 'new' } });
+  assert.deepEqual(state.future, []);
+});
+
+test('import with an empty changes list is a no-op for both modes', () => {
+  let state = createState();
+  state = apply(state, { type: 'add', change: { type: 'comment', target: loc('#a'), note: 'existing' } });
+  const replaced = apply(state, { type: 'import', changes: [], mode: 'replace' });
+  assert.equal(replaced, state);
+  const appended = apply(state, { type: 'import', changes: [], mode: 'append' });
+  assert.equal(appended, state);
+});
+
 // --- immutability ---
 
 test('apply never mutates the input state', () => {

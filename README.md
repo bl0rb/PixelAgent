@@ -153,6 +153,8 @@ Export then happens as a download instead of a file write.
 | Undo/Redo | `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` |
 | Deselect | `Esc` |
 
+The toolbar also has an **Import** button (see [Import](#import) below).
+
 **Quick icons:** three icons appear on the selected element — pencil =
 rename, move cross = drag to move, speech bubble = comment.
 
@@ -176,6 +178,19 @@ button clears the list.
 - With proxy: `POST /__uce/export` → file in the target repo
 - Without proxy: download dialog
 - Also available: "Export / Copy" to copy to the clipboard
+
+### Import
+
+The toolbar's "Import" button opens a popover to load a previously saved
+work state back into the overlay: "Choose file…" reads a local
+`ui-changes.md` or JSON file, and with a proxy running, "Load last export"
+fetches it straight from `GET /__uce/export`. Accepted formats: an exported
+`ui-changes.md` (its embedded JSON block), a raw `{version, source,
+changes}` JSON document, or a bare changes array. Invalid entries are
+skipped and reported. If the current list is empty the import applies right
+away; otherwise you choose "Replace" or "Append" (counts for both are
+shown). A toast confirms the result, including a hint when the file was
+exported from a different origin.
 
 ## Format: `ui-changes.md`
 

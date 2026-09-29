@@ -1,5 +1,6 @@
 // @ts-check
 import { scanPalette } from './palette.js';
+import { placeAboveToolbar } from './dom-utils.js';
 import { t } from './i18n.js';
 
 /**
@@ -76,6 +77,7 @@ export function openPalettePopover(ctx) {
 
   popover.append(search, list);
   ctx.layer.appendChild(popover);
+  placeAboveToolbar(ctx.shadow, popover);
   openPopoverEl = popover;
   render('');
   search.focus();

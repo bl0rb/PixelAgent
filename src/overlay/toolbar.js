@@ -56,6 +56,7 @@ export function createToolbar(ctx) {
   const exportBtn = button(doc, t('toolbar.export'), () => ctx.doExport());
   exportBtn.classList.add('uce-primary');
   const copyBtn = button(doc, t('toolbar.copy'), () => ctx.doCopy());
+  const importBtn = button(doc, t('toolbar.import'), () => ctx.openImportPopover());
   const discardBtn = button(doc, t('toolbar.discardAll'), () => {
     const view = doc.defaultView;
     const confirmed = view && typeof view.confirm === 'function' ? view.confirm(t('toolbar.discardConfirm')) : true;
@@ -70,7 +71,7 @@ export function createToolbar(ctx) {
   langBtn.title = t('toolbar.language');
   langBtn.setAttribute('aria-label', t('toolbar.language'));
 
-  body.append(modeBtn, sep(doc), undoBtn, redoBtn, sep(doc), addBtn, changesBtn, sep(doc), exportBtn, copyBtn, sep(doc), discardBtn, sep(doc), langBtn);
+  body.append(modeBtn, sep(doc), undoBtn, redoBtn, sep(doc), addBtn, changesBtn, sep(doc), exportBtn, copyBtn, importBtn, sep(doc), discardBtn, sep(doc), langBtn);
   if (ctx.proxyMode) {
     const otherUrlBtn = button(doc, t('toolbar.changeUrl'), () => {
       win.location.href = '/__uce/';

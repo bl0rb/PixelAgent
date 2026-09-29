@@ -81,75 +81,91 @@ function pushHistory(state, newChanges, newNextId) {
 }
 
 /**
- * @param {State} state
+ * Pure add/merge: computes the resulting changes list and next id counter for
+ * adding `input` to `changesList`, without any history bookkeeping. Shared by
+ * `applyAdd` (single change, one history entry) and `applyImport`'s append
+ * mode (many changes, one history entry for the whole import).
+ * @param {Change[]} changesList
+ * @param {number} nextIdCounter
  * @param {any} input
+ * @returns {{changes: Change[], nextId: number}}
  */
-function applyAdd(state, input) {
+function mergeAdd(changesList, nextIdCounter, input) {
   const type = input.type;
 
   if (type === 'insert') {
-    const id = state.nextId;
-    return pushHistory(state, [...state.changes, { ...input, id }], id + 1);
+    const id = nextIdCounter;
+    return { changes: [...changesList, { ...input, id }], nextId: id + 1 };
   }
 
   const target = input.target;
-  const existingIndex = state.changes.findIndex(
+  const existingIndex = changesList.findIndex(
     (c) => c.type === type && sameTarget(/** @type {any} */ (c).target, target) && (type !== 'attr' || /** @type {any} */ (c).attr === input.attr)
   );
 
   if (type === 'remove') {
-    if (existingIndex !== -1) return state;
-    const id = state.nextId;
-    return pushHistory(state, [...state.changes, { ...input, id }], id + 1);
+    if (existingIndex !== -1) return { changes: changesList, nextId: nextIdCounter };
+    const id = nextIdCounter;
+    return { changes: [...changesList, { ...input, id }], nextId: id + 1 };
   }
 
   if (type === 'comment') {
     const note = input.note;
     const isEmpty = !note || !String(note).trim();
     if (existingIndex !== -1) {
-      const next = state.changes.slice();
+      const next = changesList.slice();
       if (isEmpty) {
         next.splice(existingIndex, 1);
       } else {
         next[existingIndex] = Object.assign({}, next[existingIndex], { note });
       }
-      return pushHistory(state, next, state.nextId);
+      return { changes: next, nextId: nextIdCounter };
     }
-    if (isEmpty) return state;
-    const id = state.nextId;
-    return pushHistory(state, [...state.changes, { id, type: 'comment', target, note }], id + 1);
+    if (isEmpty) return { changes: changesList, nextId: nextIdCounter };
+    const id = nextIdCounter;
+    return { changes: [...changesList, { id, type: 'comment', target, note }], nextId: id + 1 };
   }
 
   if (type === 'move') {
     if (existingIndex !== -1) {
-      const next = state.changes.slice();
+      const next = changesList.slice();
       next[existingIndex] = Object.assign({}, next[existingIndex], { anchor: input.anchor, position: input.position });
-      return pushHistory(state, next, state.nextId);
+      return { changes: next, nextId: nextIdCounter };
     }
-    const id = state.nextId;
-    return pushHistory(state, [...state.changes, { ...input, id }], id + 1);
+    const id = nextIdCounter;
+    return { changes: [...changesList, { ...input, id }], nextId: id + 1 };
   }
 
   if (type === 'text' || type === 'attr') {
     if (existingIndex !== -1) {
-      const existing = /** @type {any} */ (state.changes[existingIndex]);
+      const existing = /** @type {any} */ (changesList[existingIndex]);
       const before = existing.before;
       const after = input.after;
-      const next = state.changes.slice();
+      const next = changesList.slice();
       if (after === before) {
         next.splice(existingIndex, 1);
       } else {
         next[existingIndex] = { ...existing, after };
       }
-      return pushHistory(state, next, state.nextId);
+      return { changes: next, nextId: nextIdCounter };
     }
-    if (input.after === input.before) return state;
-    const id = state.nextId;
-    return pushHistory(state, [...state.changes, { ...input, id }], id + 1);
+    if (input.after === input.before) return { changes: changesList, nextId: nextIdCounter };
+    const id = nextIdCounter;
+    return { changes: [...changesList, { ...input, id }], nextId: id + 1 };
   }
 
-  const id = state.nextId;
-  return pushHistory(state, [...state.changes, { ...input, id }], id + 1);
+  const id = nextIdCounter;
+  return { changes: [...changesList, { ...input, id }], nextId: id + 1 };
+}
+
+/**
+ * @param {State} state
+ * @param {any} input
+ */
+function applyAdd(state, input) {
+  const { changes, nextId } = mergeAdd(state.changes, state.nextId, input);
+  if (changes === state.changes) return state;
+  return pushHistory(state, changes, nextId);
 }
 
 /**
@@ -218,6 +234,36 @@ function applyLoad(state, changes, nextId) {
 }
 
 /**
+ * Imports a parsed changes list (see import.js's `parseImport`) as a single
+ * undoable action. `replace` renumbers the imported list to ids `1…n` and
+ * swaps it in wholesale; `append` runs each imported change through the same
+ * merge logic as `add`, with fresh ids. A no-op (returns `state` unchanged)
+ * when there is nothing to import.
+ * @param {State} state
+ * @param {Change[]} changes
+ * @param {'replace'|'append'} mode
+ */
+function applyImport(state, changes, mode) {
+  const list = Array.isArray(changes) ? changes : [];
+  if (list.length === 0) return state;
+
+  if (mode === 'replace') {
+    const renumbered = list.map((c, i) => ({ ...c, id: i + 1 }));
+    return pushHistory(state, renumbered, renumbered.length + 1);
+  }
+
+  let changesList = state.changes;
+  let nextId = state.nextId;
+  for (const c of list) {
+    const result = mergeAdd(changesList, nextId, c);
+    changesList = result.changes;
+    nextId = result.nextId;
+  }
+  if (changesList === state.changes) return state;
+  return pushHistory(state, changesList, nextId);
+}
+
+/**
  * @param {State} state
  * @param {{type:string, [key:string]: any}} action
  * @returns {State}
@@ -238,6 +284,8 @@ export function apply(state, action) {
       return applyRedo(state);
     case 'load':
       return applyLoad(state, action.changes, action.nextId);
+    case 'import':
+      return applyImport(state, action.changes, action.mode);
     default:
       return state;
   }
