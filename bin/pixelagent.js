@@ -3,16 +3,24 @@
 // CLI entry point: parses arguments, starts the proxy, optionally opens the browser.
 // Without a target URL, starts in launcher mode (GET /__uce/ lets the user pick one).
 
+import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createProxy } from '../src/proxy/server.js';
+import { checkForUpdate } from '../src/proxy/update-check.js';
 
-const USAGE = 'Usage: uce [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open]';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+const CURRENT_VERSION = PACKAGE_JSON.version;
+
+const USAGE =
+  'Usage: uce [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
 
 /**
  * @param {string[]} argv
- * @returns {{ port: number, out: string, open: boolean, noOpen: boolean, targetUrl?: string }}
+ * @returns {{ port: number, out: string, open: boolean, noOpen: boolean, noUpdateCheck: boolean, targetUrl?: string }}
  */
 function parseArgs(argv) {
   const result = {
@@ -20,6 +28,7 @@ function parseArgs(argv) {
     out: 'ui-changes.md',
     open: false,
     noOpen: false,
+    noUpdateCheck: false,
     targetUrl: /** @type {string | undefined} */ (undefined),
   };
   const positional = [];
@@ -33,6 +42,8 @@ function parseArgs(argv) {
       result.open = true;
     } else if (arg === '--no-open') {
       result.noOpen = true;
+    } else if (arg === '--no-update-check') {
+      result.noUpdateCheck = true;
     } else if (!arg.startsWith('--')) {
       positional.push(arg);
     }
@@ -101,7 +112,7 @@ async function handlePortInUse(port, allowOpen) {
 }
 
 function main() {
-  const { port, out, open, noOpen, targetUrl } = parseArgs(process.argv.slice(2));
+  const { port, out, open, noOpen, noUpdateCheck, targetUrl } = parseArgs(process.argv.slice(2));
 
   if (!Number.isInteger(port) || port <= 0) {
     console.error(`Invalid port: ${String(port)}`);
@@ -128,10 +139,12 @@ function main() {
 
   const resolvedOut = path.resolve(process.cwd(), out);
   const allowOpen = !noOpen && (open || launcherMode);
+  const updateCheckDisabled = noUpdateCheck || process.env.PIXELAGENT_NO_UPDATE_CHECK === '1';
 
   const server = createProxy({
     target: launcherMode ? undefined : targetUrl,
     out: resolvedOut,
+    updateCheck: updateCheckDisabled ? false : () => checkForUpdate({ currentVersion: CURRENT_VERSION }),
     onQuit: () => {
       server.close(() => process.exit(0));
     },
@@ -158,6 +171,10 @@ function main() {
       console.log(`Changes will be exported to: ${resolvedOut}`);
       if (allowOpen) openBrowser(proxyUrl);
     }
+    /** @type {any} */ (server).uce.getUpdateInfo().then((/** @type {any} */ info) => {
+      if (!info) return;
+      console.log(`A new PixelAgent version is available: ${info.latest} (you have ${info.current}) – ${info.url}`);
+    });
   });
 
   // Allows a process manager (e.g. the macOS app wrapper) to stop PixelAgent

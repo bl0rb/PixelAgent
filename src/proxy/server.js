@@ -16,6 +16,15 @@ import { injectScript } from './inject.js';
 import { stripSecurityHeaders, rewriteLocation, rewriteSetCookie } from './headers.js';
 import { launcherHtml } from './launcher.js';
 import { pickLang, messages } from './i18n.js';
+
+/** Launcher icons served under /__uce/static/ (whitelist → content type). */
+const STATIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
+/** @type {Record<string, string>} */
+const STATIC_FILES = {
+  'favicon-32.png': 'image/png',
+  'apple-touch-icon.png': 'image/png',
+  'icon.svg': 'image/svg+xml',
+};
 import { pickDirectory as defaultPickDirectory, isSupported as isPickDirSupported } from './pick-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,13 +33,15 @@ const DEFAULT_OVERLAY_DIR = path.join(REPO_ROOT, 'src', 'overlay');
 const MAX_EXPORT_BYTES = 5 * 1024 * 1024;
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 const REACHABILITY_TIMEOUT_MS = 700;
+const UPDATE_CHECK_TIMEOUT_MS = 4000;
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 
 /**
  * Create the PixelAgent proxy server. The caller is responsible for calling `.listen(...)`.
  *
  * @param {{ target?: string, out?: string, overlayDir?: string, onQuit?: () => void,
- *   pickDirectory?: (opts: { title?: string, startDir?: string }) => Promise<{path: string}|{cancelled: true}> }} [options]
+ *   pickDirectory?: (opts: { title?: string, startDir?: string }) => Promise<{path: string}|{cancelled: true}>,
+ *   updateCheck?: false | (() => Promise<{current: string, latest: string, url: string, downloadUrl?: string}|null>) }} [options]
  *   `target` is the full target URL (e.g. http://localhost:8787/admin). When
  *   omitted, the proxy starts in launcher mode: every non-/__uce/ request
  *   redirects to the launcher page until a target is set via POST /__uce/target.
@@ -42,9 +53,13 @@ const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
  *   `pickDirectory` overrides the OS-native folder chooser used by POST
  *   /__uce/pick-dir (tests inject a fake so no real dialog opens). When
  *   provided, /__uce/state reports `canPickDir: true` unconditionally.
+ *   `updateCheck`, when a function, is called once at creation (its promise
+ *   is not awaited, so startup never blocks on it) and its result is served
+ *   from GET /__uce/update. Omitted or `false` disables the check entirely
+ *   (`/__uce/update` then always answers `{ update: null, checked: false }`).
  * @returns {import('http').Server}
  */
-export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } = {}) {
+export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, updateCheck } = {}) {
   /** @type {URL|null} */
   let currentTargetUrl = target ? new URL(target) : null;
   let currentOut = path.resolve(out || path.join(process.cwd(), 'ui-changes.md'));
@@ -52,6 +67,15 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
   const pickDirFn = pickDirectory || defaultPickDirectory;
   const canPickDir = pickDirectory ? true : isPickDirSupported();
   let pickDirBusy = false;
+
+  const updateCheckEnabled = typeof updateCheck === 'function';
+  /** @type {Promise<{current: string, latest: string, url: string, downloadUrl?: string}|null>} */
+  const updateCheckPromise = updateCheckEnabled
+    ? Promise.resolve()
+        .then(() => /** @type {() => Promise<any>} */ (updateCheck)())
+        .then((info) => info || null)
+        .catch(() => null)
+    : Promise.resolve(null);
 
   const server = http.createServer((req, res) => {
     try {
@@ -85,6 +109,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
     setOut: (/** @type {string} */ p) => {
       currentOut = path.resolve(p);
     },
+    getUpdateInfo: () => updateCheckPromise,
   };
 
   return server;
@@ -96,6 +121,8 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
       return handleUceRoute(req, res, parsedUrl);
     }
     if (!currentTargetUrl) {
+      // browsers (Safari in particular) ask for /favicon.ico regardless of <link rel="icon">
+      if (parsedUrl.pathname === '/favicon.ico') return serveStaticFile(req, res, 'favicon-32.png');
       res.writeHead(302, { location: '/__uce/' });
       res.end();
       return;
@@ -120,6 +147,10 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
       if (req.method === 'GET') return sendJson(res, 200, currentState());
       return notFound(req, res);
     }
+    if (parsedUrl.pathname === '/__uce/update') {
+      if (req.method === 'GET') return handleUpdateCheck(res);
+      return notFound(req, res);
+    }
     if (parsedUrl.pathname === '/__uce/export') {
       if (req.method !== 'POST') return notFound(req, res);
       if (isCrossOriginPost(req, proxyOrigin)) return forbidden(req, res);
@@ -139,6 +170,9 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
       if (req.method !== 'POST') return notFound(req, res);
       if (isCrossOriginPost(req, proxyOrigin)) return forbidden(req, res);
       return handlePickDir(req, res);
+    }
+    if (req.method === 'GET' && parsedUrl.pathname.startsWith('/__uce/static/')) {
+      return serveStaticFile(req, res, parsedUrl.pathname.slice('/__uce/static/'.length));
     }
     if (req.method === 'GET' && parsedUrl.pathname.endsWith('.js')) {
       const relPath =
@@ -163,6 +197,17 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
     fs.readFile(resolved, (err, data) => {
       if (err) return notFound(req, res);
       send(res, 200, 'text/javascript; charset=utf-8', data);
+    });
+  }
+
+  /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res @param {string} name */
+  function serveStaticFile(req, res, name) {
+    const type = STATIC_FILES[name];
+    if (!type) return notFound(req, res);
+    fs.readFile(path.join(STATIC_DIR, name), (err, data) => {
+      if (err) return notFound(req, res);
+      res.writeHead(200, { 'content-type': type, 'content-length': String(data.length), 'cache-control': 'max-age=86400' });
+      res.end(data);
     });
   }
 
@@ -234,6 +279,27 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory } =
         if (!reachable) body.warning = t.targetMaybeUnreachable;
         sendJson(res, 200, body);
       });
+    });
+  }
+
+  /**
+   * Answers with the pending update-check result, waiting at most
+   * UPDATE_CHECK_TIMEOUT_MS for it to settle (never rejects/throws).
+   * @param {import('http').ServerResponse} res
+   */
+  function handleUpdateCheck(res) {
+    if (!updateCheckEnabled) return sendJson(res, 200, { update: null, checked: false });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      sendJson(res, 200, { update: null, checked: false });
+    }, UPDATE_CHECK_TIMEOUT_MS);
+    updateCheckPromise.then((info) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sendJson(res, 200, { update: info, checked: true });
     });
   }
 
