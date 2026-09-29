@@ -11,7 +11,7 @@ that a coding agent can implement.
 
 ## Requirements
 
-- Node ≥ 20 to run PixelAgent (Node ≥ 22.22 to run the test suite, see [Tests](#tests))
+- Node ≥ 22 to run PixelAgent (Node 20 is end-of-life); Node ≥ 22.22 to run the test suite, see [Tests](#tests)
 - No runtime dependencies
 
 ## Installation & usage
@@ -66,7 +66,7 @@ npm run app
 ```
 
 Both produce `PixelAgent.app` (macOS only; no dependencies, uses a locally
-installed Node ≥ 20). Drag it to `/Applications`.
+installed Node ≥ 22). Drag it to `/Applications`.
 
 The app is a small AppleScript wrapper around the same launcher-mode server
 described above:
@@ -232,7 +232,8 @@ The icon sources are `assets/icon.svg` (web/product icon) and
 npm test
 ```
 Runs all tests with `node --test`. Requires Node ≥ 22.22 (jsdom, used by the
-overlay tests, needs it); PixelAgent itself only requires Node ≥ 20.
+overlay tests, needs it); PixelAgent itself requires Node ≥ 22. CI runs the
+tests on Node 22, 24 and 26.
 
 ## License
 

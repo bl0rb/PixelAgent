@@ -18,8 +18,9 @@ jobs:
 
     strategy:
       matrix:
-        # jsdom (a dev dependency for the overlay tests) needs Node >= 22.22.
-        node-version: ["22", "24"]
+        # Supported release lines: 22 (maintenance LTS), 24 (active LTS),
+        # 26 (current, LTS from 2026-10-28). jsdom needs Node >= 22.22.
+        node-version: ["22", "24", "26"]
 
     steps:
       - name: Check out repository
