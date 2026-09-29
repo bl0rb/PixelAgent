@@ -1,6 +1,6 @@
 // @ts-check
 import { buildSelector } from './locator.js';
-import { isEditableTarget } from './dom-utils.js';
+import { isEditableTarget, placeFloating } from './dom-utils.js';
 import { runAction } from './actions/index.js';
 import { createDragDrop } from './dnd.js';
 import { t } from './i18n.js';
@@ -45,7 +45,6 @@ export function createSelection(ctx) {
   const selectionBoxEl = createBox(doc, 'uce-selectionbox');
   const dnd = createDragDrop(ctx);
   const quickEl = createQuickActions(doc);
-  selectionBoxEl.appendChild(quickEl);
 
   /** @type {Element|null} */
   let hoveredEl = null;
@@ -58,7 +57,13 @@ export function createSelection(ctx) {
     positionBox(selectionBoxEl, sel, shortLabel);
     quickEl.hidden = !isEdit || !sel || Boolean(ctx.getEditingElement()) || dnd.isActive();
     if (sel && !quickEl.hidden) {
-      quickEl.classList.toggle('uce-quick-above', sel.getBoundingClientRect().bottom + 40 > win.innerHeight);
+      if (!quickEl.isConnected) ctx.layer.appendChild(quickEl);
+      const rect = sel.getBoundingClientRect();
+      const size = { width: quickEl.offsetWidth || 100, height: quickEl.offsetHeight || 36 };
+      // above: leave room for the selection label
+      const pos = placeFloating(rect, size, { width: win.innerWidth, height: win.innerHeight }, { gapAbove: 24 });
+      quickEl.style.left = `${pos.left}px`;
+      quickEl.style.top = `${pos.top}px`;
     }
   }
 
@@ -403,5 +408,8 @@ function positionBox(box, el, labelText) {
   box.style.width = `${rect.width}px`;
   box.style.height = `${rect.height}px`;
   const label = box.firstElementChild;
-  if (label) label.textContent = labelText(el);
+  if (label) {
+    label.textContent = labelText(el);
+    label.classList.toggle('uce-box-label-inside', rect.top < 22);
+  }
 }

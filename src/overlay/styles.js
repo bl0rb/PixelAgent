@@ -124,9 +124,7 @@ export const overlayStyles = `
   border-top: 1.5px solid rgba(197, 34, 31, .7);
 }
 .uce-quick {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: -2px;
+  position: fixed;
   display: flex;
   gap: 2px;
   padding: 3px;
@@ -139,9 +137,9 @@ export const overlayStyles = `
 .uce-quick[hidden] {
   display: none;
 }
-.uce-quick.uce-quick-above {
-  top: auto;
-  bottom: calc(100% + 24px);
+.uce-box-label.uce-box-label-inside {
+  top: 2px;
+  left: 2px;
 }
 .uce-quick-btn {
   appearance: none;

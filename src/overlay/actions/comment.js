@@ -1,6 +1,6 @@
 // @ts-check
 import { findChange } from '../changes.js';
-import { getInsertRoot } from '../dom-utils.js';
+import { getInsertRoot, placeFloating } from '../dom-utils.js';
 import { t } from '../i18n.js';
 
 /**
@@ -77,11 +77,17 @@ export function openCommentPopover(ctx, el) {
   actionsRow.append(cancelBtn, saveBtn);
   popover.append(textarea, actionsRow);
 
-  const rect = el.getBoundingClientRect();
-  popover.style.left = `${Math.max(8, rect.left)}px`;
-  popover.style.top = `${rect.bottom + 6}px`;
-
   ctx.layer.appendChild(popover);
+  const win = el.ownerDocument.defaultView || window;
+  const pos = placeFloating(
+    el.getBoundingClientRect(),
+    { width: popover.offsetWidth || 260, height: popover.offsetHeight || 120 },
+    { width: win.innerWidth, height: win.innerHeight },
+    // large elements: bottom right, next to the quick icons (not over the toolbar)
+    { align: 'left', insideAlign: 'right', insideGap: 48 },
+  );
+  popover.style.left = `${pos.left}px`;
+  popover.style.top = `${pos.top}px`;
   openPopoverEl = popover;
   textarea.focus();
   textarea.select();
