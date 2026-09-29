@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createProxy } from '../src/proxy/server.js';
@@ -22,15 +23,17 @@ const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'pack
 const CURRENT_VERSION = PACKAGE_JSON.version;
 
 const USAGE =
-  'Usage: nudgit [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
+  'Usage: nudgit [target-url] [--port 4400] [--host 127.0.0.1] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
 
 /**
  * @param {string[]} argv
- * @returns {{ port: number, out: string, open: boolean, noOpen: boolean, noUpdateCheck: boolean, targetUrl?: string }}
+ * @returns {{ port: number, host: string | null, out: string, open: boolean, noOpen: boolean, noUpdateCheck: boolean, targetUrl?: string }}
  */
 function parseArgs(argv) {
   const result = {
     port: 4400,
+    /** @type {string | null} null = loopback only (127.0.0.1 and ::1) */
+    host: process.env.NUDGIT_HOST || null,
     out: 'ui-changes.md',
     open: false,
     noOpen: false,
@@ -42,6 +45,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--port') {
       result.port = Number(argv[++i]);
+    } else if (arg === '--host') {
+      result.host = argv[++i] || null;
     } else if (arg === '--out') {
       result.out = argv[++i];
     } else if (arg === '--open') {
@@ -70,6 +75,14 @@ function openBrowser(url) {
   } catch {
     // Browser could not be launched automatically; not fatal.
   }
+}
+
+/**
+ * @param {string} host
+ * @returns {boolean}
+ */
+function isLoopbackHost(host) {
+  return host === 'localhost' || host === '::1' || host.startsWith('127.');
 }
 
 /**
@@ -118,7 +131,7 @@ async function handlePortInUse(port, allowOpen) {
 }
 
 function main() {
-  const { port, out, open, noOpen, noUpdateCheck, targetUrl } = parseArgs(process.argv.slice(2));
+  const { port, host, out, open, noOpen, noUpdateCheck, targetUrl } = parseArgs(process.argv.slice(2));
 
   if (!Number.isInteger(port) || port <= 0) {
     console.error(`Invalid port: ${String(port)}`);
@@ -165,7 +178,10 @@ function main() {
     process.exit(1);
   });
 
-  server.listen(port, () => {
+  const onListening = () => {
+    if (host && !isLoopbackHost(host)) {
+      console.warn(`Warning: listening on ${host} – anyone who can reach this address can use nudgit and the target app through it.`);
+    }
     if (launcherMode) {
       const launcherUrl = `http://localhost:${port}/__uce/`;
       console.log(`nudgit is running at ${launcherUrl}`);
@@ -181,11 +197,38 @@ function main() {
       if (!info) return;
       console.log(`A new nudgit version is available: ${info.latest} (you have ${info.current}) – ${info.url}`);
     });
-  });
+  };
+
+  /** @type {net.Server | null} */
+  let v6Server = null;
+  if (host) {
+    server.listen(port, host, onListening);
+  } else {
+    // Default: reachable only from this machine. The HTTP server takes
+    // 127.0.0.1; a second listener on ::1 hands its connections to the same
+    // server, so `localhost` works whichever address the browser resolves.
+    server.listen(port, '127.0.0.1', () => {
+      v6Server = net.createServer((socket) => server.emit('connection', socket));
+      v6Server.on('error', (err) => {
+        const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+        v6Server = null;
+        if (code === 'EADDRINUSE') {
+          // something else answers on [::1]:port – don't run half-reachable
+          server.close(() => handlePortInUse(port, allowOpen));
+          return;
+        }
+        onListening(); // no IPv6 loopback available: 127.0.0.1 is enough
+      });
+      v6Server.listen(port, '::1', onListening);
+    });
+  }
 
   // Allows a process manager (e.g. the macOS app wrapper) to stop nudgit
   // cleanly by sending SIGTERM instead of killing it outright.
-  const shutdown = () => server.close(() => process.exit(0));
+  const shutdown = () => {
+    if (v6Server) v6Server.close();
+    server.close(() => process.exit(0));
+  };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }
