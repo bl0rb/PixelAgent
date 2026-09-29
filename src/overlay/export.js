@@ -217,20 +217,38 @@ function groupByView(changes) {
 }
 
 /**
- * First breadcrumb's first segment among a group's changes, if any.
+ * Segments of the first breadcrumb among a group's changes ([] if none).
  * @param {Change[]} changes
+ * @returns {string[]}
  */
-function firstBreadcrumbSegment(changes) {
+function firstBreadcrumb(changes) {
   for (const c of changes) {
     const loc = locatorOf(c);
-    if (loc && loc.breadcrumb) return loc.breadcrumb.split(' › ')[0];
+    if (loc && loc.breadcrumb) return loc.breadcrumb.split(' › ');
   }
-  return '';
+  return [];
 }
 
-/** @param {{key:string, changes:Change[]}} group */
-function groupHeading(group) {
-  const title = firstBreadcrumbSegment(group.changes);
+/**
+ * Number of leading breadcrumb segments shared by all groups (e.g. an app
+ * title like "Example App" above every view), so view titles can skip them.
+ * Always leaves at least one segment per breadcrumb.
+ * @param {string[][]} lists
+ */
+function commonPrefixLength(lists) {
+  if (lists.length < 2) return 0;
+  let n = 0;
+  while (lists.every((l) => l.length > n + 1 && l[n] === lists[0][n])) n++;
+  return n;
+}
+
+/**
+ * @param {{key:string, changes:Change[]}} group
+ * @param {number} skip leading segments shared by all groups
+ */
+function groupHeading(group, skip) {
+  const segments = firstBreadcrumb(group.changes);
+  const title = segments[skip] || segments[0] || '';
   return title ? `## ${title} (${inlineCode(group.key)})` : `## ${inlineCode(group.key)}`;
 }
 
@@ -305,8 +323,9 @@ export function toMarkdown(doc) {
   } else {
     /** @type {string[]} */
     const sections = [];
+    const skip = commonPrefixLength(groups.map((g) => firstBreadcrumb(g.changes)).filter((l) => l.length));
     for (const g of groups) {
-      if (multiView) sections.push(groupHeading(g));
+      if (multiView) sections.push(groupHeading(g, skip));
       for (const c of g.changes) sections.push(buildBlock(c, /** @type {any} */ (c).id, headingPrefix));
     }
     body = sections.join('\n\n');

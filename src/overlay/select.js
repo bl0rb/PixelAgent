@@ -393,6 +393,10 @@ function positionBox(box, el, labelText) {
     return;
   }
   const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    box.style.display = 'none';
+    return;
+  }
   box.style.display = 'block';
   box.style.left = `${rect.left}px`;
   box.style.top = `${rect.top}px`;

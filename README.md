@@ -18,6 +18,24 @@ requests can be marked, moved, edited, duplicated, and commented on directly
 on the page. The result is a machine-readable change list (`ui-changes.md`)
 that a coding agent can implement.
 
+## Screenshots
+
+**Select any element** — hover shows what you would pick, the selection gets
+quick icons for rename, move (drag) and comment; numbered markers show every
+change already made.
+
+![Selecting an element with nudgit](docs/images/select.png)
+
+**Every change in one list** — text and description edits, moves, removals,
+duplicates and comments, previewed live on the page.
+
+![The change list next to the previewed page](docs/images/panel.png)
+
+**Agent-ready result** — `ui-changes.md` states what to do first, then where,
+with several locators per element and a JSON attachment.
+
+![The exported ui-changes.md](docs/images/ui-changes-md.png)
+
 ## Requirements
 
 - Node ≥ 22 to run nudgit (Node 20 is end-of-life); Node ≥ 22.22 to run the test suite, see [Tests](#tests)
@@ -66,6 +84,8 @@ recently used URLs (each remembers its save location), and the "Open" / "Quit" b
 redirects straight into the running app including the overlay — no CLI call
 needed. In the overlay toolbar, the "Change URL" button always jumps back to
 the start page. "Quit" stops the server.
+
+![The nudgit start page](docs/images/launcher.png)
 
 For a double-clickable macOS app, either download `nudgit-macos.zip` from
 the [Releases page](https://github.com/bl0rb/nudgit/releases) and unzip
@@ -135,6 +155,10 @@ Export then happens as a download instead of a file write.
 
 **Quick icons:** three icons appear on the selected element — pencil =
 rename, move cross = drag to move, speech bubble = comment.
+
+![Commenting on an element](docs/images/comment.png)
+
+![The palette of similar elements](docs/images/palette.png)
 
 ### Change list
 
@@ -240,6 +264,15 @@ implementation status in the chat.
 The icon sources are `assets/icon.svg` (web/product icon) and
 `assets/icon-macos.svg` (macOS app icon). `scripts/make-icons.sh` regenerates
 `assets/nudgit.icns` and `assets/icon-512.png` (macOS: `sips` + `iconutil`).
+
+## Screenshots (development)
+
+`npm run screenshots` regenerates the images in `docs/images/` (macOS with
+Google Chrome): it drives the real overlay on the demo app via
+`examples/showcase.js` (`demo.html?showcase=<scene>`), frames the shots and
+renders the exported `ui-changes.md`. `docs/images/social-preview.png`
+(1280×640) is meant for the repository's social preview in the GitHub
+settings.
 
 ## Tests
 

@@ -325,6 +325,8 @@ export function createPanel(ctx) {
       const result = previewResults.find((r) => r.change.id === change.id);
       if (!result || !result.found || !result.el) return;
       const rect = result.el.getBoundingClientRect();
+      // element not rendered (e.g. in a hidden view/tab): no marker at 0,0
+      if (rect.width === 0 && rect.height === 0) return;
 
       if (change.type === 'remove') {
         const box = doc.createElement('div');
