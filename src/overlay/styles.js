@@ -386,6 +386,21 @@ export const overlayStyles = `
 .uce-palette-list li.uce-empty { cursor: default; }
 .uce-palette-list li.uce-empty:hover { background: transparent; }
 
+/* Import popover */
+.uce-import-popover {
+  left: 16px;
+  bottom: 64px;
+  width: 300px;
+}
+.uce-import-popover .uce-popover-actions {
+  flex-wrap: wrap;
+}
+.uce-import-counts {
+  font-size: 11px;
+  color: #666;
+}
+.uce-import-popover .uce-popover-actions[hidden] { display: none; }
+
 /* Toast */
 .uce-toast {
   position: fixed;

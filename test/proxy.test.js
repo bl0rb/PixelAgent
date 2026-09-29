@@ -519,6 +519,43 @@ test('POST /__uce/export writes the markdown to --out and returns its absolute p
   assert.equal(written, markdown);
 });
 
+test('GET /__uce/export returns 404 before any export has been written', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'uce-proxy-export-test-'));
+  const out = path.join(dir, 'ui-changes.md');
+  const freshProxy = createProxy({ target: targetOrigin, out, overlayDir, updateCheck: false });
+  await new Promise((resolve) => freshProxy.listen(0, resolve));
+  const freshAddress = freshProxy.address();
+  const freshPort = typeof freshAddress === 'object' && freshAddress ? freshAddress.port : 0;
+  try {
+    const res = await request(freshPort, { path: '/__uce/export' });
+    assert.equal(res.statusCode, 404);
+  } finally {
+    await new Promise((resolve) => freshProxy.close(resolve));
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('GET /__uce/export returns the exported markdown after a POST export', async () => {
+  const markdown = '# UI changes\n\nHello export';
+  const postRes = await request(proxyPort, {
+    path: '/__uce/export',
+    method: 'POST',
+    headers: { 'content-type': 'text/markdown; charset=utf-8' },
+    body: Buffer.from(markdown, 'utf-8'),
+  });
+  assert.equal(postRes.statusCode, 200);
+
+  const res = await request(proxyPort, { path: '/__uce/export' });
+  assert.equal(res.statusCode, 200);
+  assert.match(String(res.headers['content-type']), /text\/markdown/);
+  assert.equal(res.body.toString('utf-8'), markdown);
+});
+
+test('GET /__uce/export rejects a cross-site request with 403', async () => {
+  const res = await request(proxyPort, { path: '/__uce/export', headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(res.statusCode, 403);
+});
+
 test('responds 502 without crashing; message language follows Accept-Language (absent/en -> English, de -> German)', async () => {
   const deadPort = await getFreePort();
   const deadProxy = createProxy({

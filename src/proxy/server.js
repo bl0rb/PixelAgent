@@ -168,6 +168,10 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       return notFound(req, res);
     }
     if (parsedUrl.pathname === '/__uce/export') {
+      if (req.method === 'GET') {
+        if (req.headers['sec-fetch-site'] === 'cross-site') return forbidden(req, res);
+        return handleExportGet(req, res);
+      }
       if (req.method !== 'POST') return notFound(req, res);
       if (isCrossOriginPost(req, proxyOrigin)) return forbidden(req, res);
       return handleExport(req, res);
@@ -254,6 +258,14 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       });
     });
     req.on('error', () => {});
+  }
+
+  /** Serves the current export file, or 404 when it doesn't exist yet. @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */
+  function handleExportGet(req, res) {
+    fs.readFile(currentOut, (err, data) => {
+      if (err) return notFound(req, res);
+      send(res, 200, 'text/markdown; charset=utf-8', data);
+    });
   }
 
   /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */

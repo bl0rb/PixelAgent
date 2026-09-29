@@ -144,3 +144,18 @@ export function findTextBearingElement(el) {
 export function isBeingEdited(el) {
   return el.hasAttribute('contenteditable');
 }
+
+/**
+ * Places a toolbar popover just above the toolbar (which can wrap to several
+ * rows or be dragged anywhere), aligned to its left edge.
+ * @param {ShadowRoot} shadow
+ * @param {HTMLElement} popover
+ */
+export function placeAboveToolbar(shadow, popover) {
+  const toolbar = /** @type {HTMLElement | null} */ (shadow.querySelector('.uce-toolbar'));
+  if (!toolbar) return;
+  const rect = toolbar.getBoundingClientRect();
+  const win = shadow.ownerDocument.defaultView || window;
+  popover.style.left = `${Math.max(8, rect.left)}px`;
+  popover.style.bottom = `${Math.max(8, win.innerHeight - rect.top + 8)}px`;
+}

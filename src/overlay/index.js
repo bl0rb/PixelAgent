@@ -9,6 +9,7 @@ import { createPanel } from './panel.js';
 import { sync as previewSync, withOriginalDom } from './preview.js';
 import { createPositionTracker } from './position-tracker.js';
 import { openPalettePopover } from './palette-popover.js';
+import { openImportPopover } from './import-popover.js';
 import { t } from './i18n.js';
 
 /**
@@ -43,6 +44,7 @@ import { t } from './i18n.js';
  * @property {() => void} doCopy
  * @property {(message: string, opts?: { error?: boolean }) => void} toast
  * @property {() => void} openPalette
+ * @property {() => void} openImportPopover
  * @property {(entry: import('./palette.js').PaletteEntry) => void} startPlaceMode
  * @property {() => void} resync
  */
@@ -205,6 +207,7 @@ function initOverlay() {
     },
     toast: (message, opts) => toolbarApi.showToast(message, opts),
     openPalette: () => openPalettePopover(ctx),
+    openImportPopover: () => openImportPopover(ctx),
     startPlaceMode: (entry) => selectionApi.startPlaceMode(entry),
     resync: () => renderFull(),
   };
