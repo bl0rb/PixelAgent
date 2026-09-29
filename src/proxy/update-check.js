@@ -49,13 +49,41 @@ export function compareVersions(a, b) {
  * @returns {Promise<{ current: string, latest: string, url: string, downloadUrl?: string } | null>}
  */
 export async function checkForUpdate({ currentVersion, fetchImpl = fetch, timeoutMs = 3000 }) {
+  // Own timer instead of AbortSignal.timeout(): that timer is unref'd, so a
+  // hanging request could outlive a short-lived process/test without ever
+  // resolving. The timer aborts the request and resolves the race with null.
+  const controller = new AbortController();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetchLatest(currentVersion, fetchImpl, controller.signal), timeout]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * @param {string} currentVersion
+ * @param {typeof fetch} fetchImpl
+ * @param {AbortSignal} signal
+ * @returns {Promise<{ current: string, latest: string, url: string, downloadUrl?: string } | null>}
+ */
+async function fetchLatest(currentVersion, fetchImpl, signal) {
   try {
     const res = await fetchImpl(RELEASES_URL, {
       headers: {
         Accept: 'application/vnd.github+json',
         'User-Agent': `PixelAgent/${currentVersion}`,
       },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
     if (!res || !res.ok) return null;
 
