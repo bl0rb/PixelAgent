@@ -1,32 +1,41 @@
-<img src="assets/icon.svg" alt="PixelAgent icon" width="96" align="right">
+<img src="assets/icon.svg" alt="nudgit icon" width="96" align="right">
 
-# PixelAgent
+# nudgit
 
-[![PR CI](https://github.com/bl0rb/PixelAgent/actions/workflows/pr-ci.yml/badge.svg)](https://github.com/bl0rb/PixelAgent/actions/workflows/pr-ci.yml)
+[![PR CI](https://github.com/bl0rb/nudgit/actions/workflows/pr-ci.yml/badge.svg)](https://github.com/bl0rb/nudgit/actions/workflows/pr-ci.yml)
 
-PixelAgent is a proxy that sits between the browser and a running web app. UI change
+**Your UI. Your feedback. Agent-ready.**
+
+Edit, move and annotate elements directly in your browser. Turn visual
+feedback into actionable instructions for your coding agent.
+
+Visual editing · Agent-ready · Open source
+
+nudgit was formerly called PixelAgent.
+
+nudgit is a proxy that sits between the browser and a running web app. UI change
 requests can be marked, moved, edited, duplicated, and commented on directly
 on the page. The result is a machine-readable change list (`ui-changes.md`)
 that a coding agent can implement.
 
 ## Requirements
 
-- Node ≥ 22 to run PixelAgent (Node 20 is end-of-life); Node ≥ 22.22 to run the test suite, see [Tests](#tests)
+- Node ≥ 22 to run nudgit (Node 20 is end-of-life); Node ≥ 22.22 to run the test suite, see [Tests](#tests)
 - No runtime dependencies
 
 ## Installation & usage
 
 ```bash
-git clone https://github.com/bl0rb/PixelAgent.git
-cd PixelAgent
-npm link   # optional: makes the `pixelagent` command available globally
+git clone https://github.com/bl0rb/nudgit.git
+cd nudgit
+npm link   # optional: makes the `nudgit` command available globally
 ```
 
 ```bash
-pixelagent [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]
+nudgit [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]
 ```
 
-- `[target-url]`: full URL of the target app, e.g. `http://localhost:8787/admin`. If omitted, PixelAgent starts in launcher mode (see below)
+- `[target-url]`: full URL of the target app, e.g. `http://localhost:8787/admin`. If omitted, nudgit starts in launcher mode (see below)
 - `--port 4400`: proxy port (default: 4400)
 - `--out ui-changes.md`: path for the change list, relative to the current working directory (default: `./ui-changes.md`)
 - `--open`: open the browser (already the default in launcher mode)
@@ -36,16 +45,16 @@ pixelagent [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open]
 Example:
 ```bash
 cd ~/Documents/Code/my-project
-pixelagent http://localhost:8787/admin --open   # or: node /path/to/PixelAgent/bin/pixelagent.js …
+nudgit http://localhost:8787/admin --open   # or: node /path/to/nudgit/bin/nudgit.js …
 ```
 The change list ends up directly in the target repo.
 
 ### Run as an app
 
-Without a target URL, PixelAgent starts in launcher mode:
+Without a target URL, nudgit starts in launcher mode:
 
 ```bash
-pixelagent
+nudgit
 ```
 
 The browser opens automatically at `http://localhost:4400/__uce/`: a start
@@ -57,32 +66,32 @@ redirects straight into the running app including the overlay — no CLI call
 needed. In the overlay toolbar, the "Change URL" button always jumps back to
 the start page. "Quit" stops the server.
 
-For a double-clickable macOS app, either download `PixelAgent-macos.zip` from
-the [Releases page](https://github.com/bl0rb/PixelAgent/releases) and unzip
+For a double-clickable macOS app, either download `nudgit-macos.zip` from
+the [Releases page](https://github.com/bl0rb/nudgit/releases) and unzip
 it, or build it yourself:
 
 ```bash
 npm run app
 ```
 
-Both produce `PixelAgent.app` (macOS only; no dependencies, uses a locally
+Both produce `nudgit.app` (macOS only; no dependencies, uses a locally
 installed Node ≥ 22). Drag it to `/Applications`.
 
 The app is a small AppleScript wrapper around the same launcher-mode server
 described above:
-- Launching it starts PixelAgent in the background and opens the browser at
-  `http://localhost:4400/__uce/`, same as `pixelagent` on the command line.
+- Launching it starts nudgit in the background and opens the browser at
+  `http://localhost:4400/__uce/`, same as `nudgit` on the command line.
 - Clicking the Dock icon again reopens that page.
 - `Cmd+Q`, the Dock's "Quit" item, and the "Quit" button on the launcher page
-  all stop PixelAgent and close the app.
-- Server output goes to `~/Library/Logs/PixelAgent.log`.
+  all stop nudgit and close the app.
+- Server output goes to `~/Library/Logs/nudgit.log`.
 
 Gatekeeper note: the app is ad-hoc signed, not notarized, so macOS blocks the
-first launch ("PixelAgent can't be opened because Apple cannot check it for
+first launch ("nudgit can't be opened because Apple cannot check it for
 malicious software"). Allow it once via **System Settings → Privacy &
 Security → Open Anyway**, or remove the quarantine flag yourself:
 ```bash
-xattr -dr com.apple.quarantine /Applications/PixelAgent.app
+xattr -dr com.apple.quarantine /Applications/nudgit.app
 ```
 
 ### Run the demo
@@ -191,21 +200,21 @@ English only.
 
 ## Update check
 
-On startup, PixelAgent does one GET request to the public GitHub API
-(`https://api.github.com/repos/bl0rb/PixelAgent/releases/latest`) to see
-whether a newer release exists, with a generic `User-Agent: PixelAgent/<version>`
+On startup, nudgit does one GET request to the public GitHub API
+(`https://api.github.com/repos/bl0rb/nudgit/releases/latest`) to see
+whether a newer release exists, with a generic `User-Agent: nudgit/<version>`
 header — no telemetry, no identifiers, no query params, and nothing about your
 installation, target app, or usage is sent. The request has a ~3s timeout and
 fails silently (no console error) if it can't complete.
 
 - If a newer version is found, the CLI prints one line on startup (e.g. `A new
-  PixelAgent version is available: 1.0.2 (you have 1.0.1) – <release URL>`),
+  nudgit version is available: 1.0.2 (you have 1.0.1) – <release URL>`),
   and the launcher page (`/__uce/`) shows a dismissible banner with a link to
   the release and, on macOS, a link to download the app if the release has a
-  `PixelAgent-macos.zip` asset. Dismissing the banner is remembered per
+  `nudgit-macos.zip` asset. Dismissing the banner is remembered per
   version in `localStorage`.
 - Disable it with `--no-update-check` or the environment variable
-  `PIXELAGENT_NO_UPDATE_CHECK=1`.
+  `NUDGIT_NO_UPDATE_CHECK=1`.
 
 ## Snippet for target repos
 
@@ -224,7 +233,7 @@ implementation status in the chat.
 
 The icon sources are `assets/icon.svg` (web/product icon) and
 `assets/icon-macos.svg` (macOS app icon). `scripts/make-icons.sh` regenerates
-`assets/PixelAgent.icns` and `assets/icon-512.png` (macOS: `sips` + `iconutil`).
+`assets/nudgit.icns` and `assets/icon-512.png` (macOS: `sips` + `iconutil`).
 
 ## Tests
 
@@ -232,7 +241,7 @@ The icon sources are `assets/icon.svg` (web/product icon) and
 npm test
 ```
 Runs all tests with `node --test`. Requires Node ≥ 22.22 (jsdom, used by the
-overlay tests, needs it); PixelAgent itself requires Node ≥ 22. CI runs the
+overlay tests, needs it); nudgit itself requires Node ≥ 22. CI runs the
 tests on Node 22, 24 and 26.
 
 ## License

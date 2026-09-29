@@ -1,6 +1,6 @@
 // @ts-check
 // `npm run demo`: static file server for the repo (mimics the target app's
-// security headers) plus the PixelAgent proxy in front of it.
+// security headers) plus the nudgit proxy in front of it.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -83,7 +83,7 @@ staticServer.listen(STATIC_PORT, () => {
 
   proxy.listen(PROXY_PORT, () => {
     console.log(`Static server running at http://localhost:${STATIC_PORT}`);
-    console.log(`PixelAgent proxy running at http://localhost:${PROXY_PORT}${DEMO_PATH} (target: ${targetUrl})`);
+    console.log(`nudgit proxy running at http://localhost:${PROXY_PORT}${DEMO_PATH} (target: ${targetUrl})`);
     console.log(`Standalone without proxy: ${targetUrl}?standalone`);
     console.log(`Changes will be exported to: ${out}`);
   });

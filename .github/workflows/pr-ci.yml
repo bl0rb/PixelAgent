@@ -66,28 +66,28 @@ jobs:
         run: npm run app
 
       - name: Lint Info.plist
-        run: plutil -lint dist/PixelAgent.app/Contents/Info.plist
+        run: plutil -lint dist/nudgit.app/Contents/Info.plist
 
       - name: Verify ad-hoc code signature
-        run: codesign --verify --deep --strict dist/PixelAgent.app
+        run: codesign --verify --deep --strict dist/nudgit.app
 
       # CFBundleIconName would make macOS show osacompile's generic
       # AppleScript icon from Assets.car instead of our applet.icns.
       - name: Verify app icon
         run: |
-          if plutil -extract CFBundleIconName raw dist/PixelAgent.app/Contents/Info.plist >/dev/null 2>&1; then
+          if plutil -extract CFBundleIconName raw dist/nudgit.app/Contents/Info.plist >/dev/null 2>&1; then
             echo "CFBundleIconName must not be set"; exit 1
           fi
-          test ! -e dist/PixelAgent.app/Contents/Resources/Assets.car
-          cmp assets/PixelAgent.icns dist/PixelAgent.app/Contents/Resources/applet.icns
+          test ! -e dist/nudgit.app/Contents/Resources/Assets.car
+          cmp assets/nudgit.icns dist/nudgit.app/Contents/Resources/applet.icns
 
       # Building the .app is not enough: run the bundled runtime the way the
       # AppleScript wrapper does, and confirm it answers and shuts down
       # cleanly on POST /__uce/quit (this is what "on quit" relies on).
       - name: Smoke-test the bundled runtime
         run: |
-          node dist/PixelAgent.app/Contents/Resources/pixelagent/bin/pixelagent.js --no-open --port 4455 \
-            > /tmp/pixelagent-smoke.log 2>&1 &
+          node dist/nudgit.app/Contents/Resources/nudgit/bin/nudgit.js --no-open --port 4455 \
+            > /tmp/nudgit-smoke.log 2>&1 &
           pid=$!
 
           ok=""
@@ -95,7 +95,7 @@ jobs:
             if curl -sf http://localhost:4455/__uce/state > /dev/null; then ok=1; break; fi
             sleep 0.5
           done
-          cat /tmp/pixelagent-smoke.log
+          cat /tmp/nudgit-smoke.log
           [ "$ok" = "1" ]
 
           curl -sf -X POST -H 'Origin: http://localhost:4455' http://localhost:4455/__uce/quit
@@ -106,16 +106,16 @@ jobs:
             sleep 0.5
           done
           if [ "$exited" != "1" ]; then
-            echo "pixelagent.js did not exit after /__uce/quit"
+            echo "nudgit.js did not exit after /__uce/quit"
             kill -9 "$pid" 2>/dev/null || true
             exit 1
           fi
 
       - name: Package app bundle
-        run: ditto -c -k --keepParent dist/PixelAgent.app PixelAgent-macos.zip
+        run: ditto -c -k --keepParent dist/nudgit.app nudgit-macos.zip
 
       - name: Upload app bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: PixelAgent-macos
-          path: PixelAgent-macos.zip
+          name: nudgit-macos
+          path: nudgit-macos.zip
