@@ -159,3 +159,36 @@ export function placeAboveToolbar(shadow, popover) {
   popover.style.left = `${Math.max(8, rect.left)}px`;
   popover.style.bottom = `${Math.max(8, win.innerHeight - rect.top + 8)}px`;
 }
+
+/**
+ * Viewport-aware position for a small floating UI (quick icons, popovers)
+ * next to an anchor rect: below it if there is room, else above it, else
+ * inside the anchor's visible part (large or edge-hugging elements) — always
+ * fully inside the viewport.
+ * @param {{ top: number, bottom: number, left: number, right: number }} anchor
+ * @param {{ width: number, height: number }} size
+ * @param {{ width: number, height: number }} viewport
+ * @param {{ align?: 'left' | 'right', insideAlign?: 'left' | 'right', insideGap?: number, gap?: number, gapAbove?: number, margin?: number }} [opts]
+ * @returns {{ left: number, top: number }}
+ */
+export function placeFloating(anchor, size, viewport, opts = {}) {
+  const { align = 'right', gap = 6, gapAbove = gap, margin = 8 } = opts;
+  const insideAlign = opts.insideAlign || align;
+  const insideGap = opts.insideGap ?? gap;
+  const clamp = (/** @type {number} */ v, /** @type {number} */ lo, /** @type {number} */ hi) =>
+    Math.min(Math.max(v, lo), Math.max(lo, hi));
+  const leftFor = (/** @type {'left' | 'right'} */ a) =>
+    clamp(a === 'right' ? anchor.right - size.width : anchor.left, margin, viewport.width - size.width - margin);
+  let left = leftFor(align);
+  let top;
+  if (anchor.bottom + gap + size.height <= viewport.height - margin) {
+    top = Math.max(anchor.bottom + gap, margin);
+  } else if (anchor.top - gapAbove - size.height >= margin) {
+    top = anchor.top - gapAbove - size.height;
+  } else {
+    left = leftFor(insideAlign);
+    const visibleBottom = Math.min(anchor.bottom, viewport.height - margin);
+    top = clamp(visibleBottom - size.height - insideGap, margin, viewport.height - size.height - margin);
+  }
+  return { left, top };
+}
