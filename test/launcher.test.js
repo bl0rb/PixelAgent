@@ -97,7 +97,7 @@ const pickerPort = typeof pickerAddress === 'object' && pickerAddress ? pickerAd
 const updateInfoFixture = {
   current: '1.0.1',
   latest: '1.0.2',
-  url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+  url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
 };
 const updateProxy = createProxy({
   out: path.join(tmpDir, 'update-ui-changes.md'),
@@ -138,7 +138,7 @@ test('GET /__uce/ serves the bilingual launcher page (en default, de embedded fo
   assert.match(String(res.headers['content-type']), /text\/html/);
   const html = res.body.toString('utf-8');
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /PixelAgent/);
+  assert.match(html, /nudgit/);
   assert.match(html, /Open/);
   assert.match(html, /Quit/);
   assert.match(html, /Öffnen/);
@@ -382,7 +382,7 @@ test('GET /__uce/update returns update:null with checked:false when the update c
 
 test('launcher page: shows the update banner and hides+remembers it on dismiss', async () => {
   const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
-  const info = { current: '1.0.1', latest: '1.0.2', url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2' };
+  const info = { current: '1.0.1', latest: '1.0.2', url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2' };
   const dom = new JSDOM(html, {
     url: 'http://localhost/__uce/',
     runScripts: 'dangerously',
@@ -420,8 +420,8 @@ test('launcher page: shows the macOS download link only when downloadUrl is pres
   const info = {
     current: '1.0.1',
     latest: '1.0.2',
-    url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
-    downloadUrl: 'https://github.com/bl0rb/PixelAgent/releases/download/v1.0.2/PixelAgent-macos.zip',
+    url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
+    downloadUrl: 'https://github.com/bl0rb/nudgit/releases/download/v1.0.2/nudgit-macos.zip',
   };
   const dom = new JSDOM(html, {
     url: 'http://localhost/__uce/',

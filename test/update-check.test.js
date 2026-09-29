@@ -45,18 +45,18 @@ test('checkForUpdate: newer release found -> info incl. downloadUrl for the macO
     currentVersion: '1.0.1',
     fetchImpl: okJsonFetch({
       tag_name: 'v1.0.2',
-      html_url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+      html_url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
       assets: [
         { name: 'other-asset.zip', browser_download_url: 'https://example.com/other-asset.zip' },
-        { name: 'PixelAgent-macos.zip', browser_download_url: 'https://example.com/PixelAgent-macos.zip' },
+        { name: 'nudgit-macos.zip', browser_download_url: 'https://example.com/nudgit-macos.zip' },
       ],
     }),
   });
   assert.deepEqual(info, {
     current: '1.0.1',
     latest: '1.0.2',
-    url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
-    downloadUrl: 'https://example.com/PixelAgent-macos.zip',
+    url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
+    downloadUrl: 'https://example.com/nudgit-macos.zip',
   });
 });
 
@@ -65,14 +65,14 @@ test('checkForUpdate: no macOS asset -> info without downloadUrl', async () => {
     currentVersion: '1.0.1',
     fetchImpl: okJsonFetch({
       tag_name: '1.0.2',
-      html_url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+      html_url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
       assets: [],
     }),
   });
   assert.deepEqual(info, {
     current: '1.0.1',
     latest: '1.0.2',
-    url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+    url: 'https://github.com/bl0rb/nudgit/releases/tag/v1.0.2',
   });
 });
 
@@ -175,7 +175,7 @@ test('checkForUpdate: requests the expected URL/headers and nothing else (no ide
       return { ok: true, status: 200, json: async () => ({}) };
     }),
   });
-  assert.equal(captured.url, 'https://api.github.com/repos/bl0rb/PixelAgent/releases/latest');
+  assert.equal(captured.url, 'https://api.github.com/repos/bl0rb/nudgit/releases/latest');
   assert.equal(captured.options.headers.Accept, 'application/vnd.github+json');
-  assert.equal(captured.options.headers['User-Agent'], 'PixelAgent/1.2.3');
+  assert.equal(captured.options.headers['User-Agent'], 'nudgit/1.2.3');
 });

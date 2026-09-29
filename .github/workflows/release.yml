@@ -42,7 +42,7 @@ jobs:
         run: npm run app
 
       - name: Package app bundle
-        run: ditto -c -k --keepParent dist/PixelAgent.app PixelAgent-macos.zip
+        run: ditto -c -k --keepParent dist/nudgit.app nudgit-macos.zip
 
       - name: Create release
         shell: bash
@@ -69,4 +69,4 @@ jobs:
           fi
 
       - name: Upload app bundle to release
-        run: gh release upload "$GITHUB_REF_NAME" PixelAgent-macos.zip --clobber
+        run: gh release upload "$GITHUB_REF_NAME" nudgit-macos.zip --clobber

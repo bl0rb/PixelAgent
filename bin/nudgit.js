@@ -13,7 +13,7 @@ import { checkForUpdate } from '../src/proxy/update-check.js';
 
 const MIN_NODE_MAJOR = 22;
 if (Number(process.versions.node.split('.')[0]) < MIN_NODE_MAJOR) {
-  console.error(`PixelAgent needs Node.js ${MIN_NODE_MAJOR} or newer (found ${process.versions.node}).`);
+  console.error(`nudgit needs Node.js ${MIN_NODE_MAJOR} or newer (found ${process.versions.node}).`);
   process.exit(1);
 }
 
@@ -22,7 +22,7 @@ const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'pack
 const CURRENT_VERSION = PACKAGE_JSON.version;
 
 const USAGE =
-  'Usage: uce [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
+  'Usage: nudgit [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
 
 /**
  * @param {string[]} argv
@@ -73,7 +73,7 @@ function openBrowser(url) {
 }
 
 /**
- * Checks whether `GET /__uce/state` on `port` answers like a PixelAgent instance
+ * Checks whether `GET /__uce/state` on `port` answers like a nudgit instance
  * (used when our own `.listen()` fails with EADDRINUSE).
  * @param {number} port
  * @returns {Promise<boolean>}
@@ -108,7 +108,7 @@ function isUceInstance(port) {
 async function handlePortInUse(port, allowOpen) {
   const isUce = await isUceInstance(port);
   if (isUce) {
-    console.log(`PixelAgent is already running on port ${port}.`);
+    console.log(`nudgit is already running on port ${port}.`);
     if (allowOpen) openBrowser(`http://localhost:${port}/__uce/`);
     process.exit(0);
     return;
@@ -145,7 +145,7 @@ function main() {
 
   const resolvedOut = path.resolve(process.cwd(), out);
   const allowOpen = !noOpen && (open || launcherMode);
-  const updateCheckDisabled = noUpdateCheck || process.env.PIXELAGENT_NO_UPDATE_CHECK === '1';
+  const updateCheckDisabled = noUpdateCheck || process.env.NUDGIT_NO_UPDATE_CHECK === '1';
 
   const server = createProxy({
     target: launcherMode ? undefined : targetUrl,
@@ -168,22 +168,22 @@ function main() {
   server.listen(port, () => {
     if (launcherMode) {
       const launcherUrl = `http://localhost:${port}/__uce/`;
-      console.log(`PixelAgent is running at ${launcherUrl}`);
+      console.log(`nudgit is running at ${launcherUrl}`);
       console.log(`Output directory: ${path.dirname(resolvedOut)}`);
       if (allowOpen) openBrowser(launcherUrl);
     } else {
       const proxyUrl = `http://localhost:${port}${parsedTarget.pathname}${parsedTarget.search}${parsedTarget.hash}`;
-      console.log(`PixelAgent proxy running at ${proxyUrl} (target: ${targetUrl})`);
+      console.log(`nudgit proxy running at ${proxyUrl} (target: ${targetUrl})`);
       console.log(`Changes will be exported to: ${resolvedOut}`);
       if (allowOpen) openBrowser(proxyUrl);
     }
     /** @type {any} */ (server).uce.getUpdateInfo().then((/** @type {any} */ info) => {
       if (!info) return;
-      console.log(`A new PixelAgent version is available: ${info.latest} (you have ${info.current}) – ${info.url}`);
+      console.log(`A new nudgit version is available: ${info.latest} (you have ${info.current}) – ${info.url}`);
     });
   });
 
-  // Allows a process manager (e.g. the macOS app wrapper) to stop PixelAgent
+  // Allows a process manager (e.g. the macOS app wrapper) to stop nudgit
   // cleanly by sending SIGTERM instead of killing it outright.
   const shutdown = () => server.close(() => process.exit(0));
   process.on('SIGTERM', shutdown);

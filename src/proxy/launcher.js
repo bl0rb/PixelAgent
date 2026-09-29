@@ -28,7 +28,8 @@ const STYLE = `
     background: rgba(127,127,127,0.06); border: 1px solid rgba(127,127,127,0.25);
     border-radius: 14px;
   }
-  h1 { font-size: 19px; font-weight: 600; margin: 0 0 22px; padding-right: 60px; }
+  h1 { font-size: 19px; font-weight: 600; margin: 0; padding-right: 60px; }
+  .uce-tagline { font-size: 12.5px; opacity: 0.7; margin: 4px 0 22px; }
   label { display: block; font-size: 12px; opacity: 0.7; margin: 16px 0 6px; }
   input[type="text"] {
     width: 100%; padding: 10px 12px; font-size: 14px; border-radius: 8px;
@@ -102,12 +103,12 @@ const SCRIPT = `
 (function () {
   var STRINGS = {
     en: {
-      title: 'PixelAgent',
+      title: 'nudgit',
       urlLabel: 'Target URL',
       outLabel: 'Save location for ui-changes.md',
       openBtn: 'Open',
       quitBtn: 'Quit',
-      quitConfirm: 'Really quit PixelAgent?',
+      quitConfirm: 'Really quit nudgit?',
       quitDoneText: 'Stopped. This window can be closed.',
       stateTargetLabel: 'Current target',
       stateOutLabel: 'Output file',
@@ -127,12 +128,12 @@ const SCRIPT = `
       dismissUpdate: 'Dismiss'
     },
     de: {
-      title: 'PixelAgent',
+      title: 'nudgit',
       urlLabel: 'Ziel-URL',
       outLabel: 'Speicherort für ui-changes.md',
       openBtn: 'Öffnen',
       quitBtn: 'Beenden',
-      quitConfirm: 'PixelAgent wirklich beenden?',
+      quitConfirm: 'nudgit wirklich beenden?',
       quitDoneText: 'Beendet. Dieses Fenster kann geschlossen werden.',
       stateTargetLabel: 'Aktuelles Ziel',
       stateOutLabel: 'Ausgabedatei',
@@ -477,7 +478,7 @@ export function launcherHtml(state) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PixelAgent</title>
+<title>nudgit</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/__uce/static/favicon-32.png">
 <link rel="icon" type="image/svg+xml" href="/__uce/static/icon.svg">
 <link rel="apple-touch-icon" href="/__uce/static/apple-touch-icon.png">
@@ -489,7 +490,8 @@ export function launcherHtml(state) {
       <button type="button" id="uce-lang-en">EN</button>
       <button type="button" id="uce-lang-de">DE</button>
     </div>
-    <h1 id="uce-title">PixelAgent</h1>
+    <h1 id="uce-title">nudgit</h1>
+    <p class="uce-tagline">Your UI. Your feedback. Agent-ready.</p>
     <div class="uce-update-banner" id="uce-update-banner" hidden>
       <span id="uce-update-text"></span>
       <a id="uce-update-link" href="#" target="_blank" rel="noopener"></a>

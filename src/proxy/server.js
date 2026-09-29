@@ -1,6 +1,6 @@
 // @ts-check
 // Reverse proxy that sits between the browser and a target web app, injects the
-// PixelAgent overlay script into HTML responses, and serves the overlay + export routes
+// nudgit overlay script into HTML responses, and serves the overlay + export routes
 // under the reserved /__uce/ prefix. Also serves a launcher page (GET /__uce/)
 // so the target and output directory can be picked/changed at runtime, without
 // a URL argument on the CLI ("launcher mode").
@@ -37,7 +37,7 @@ const UPDATE_CHECK_TIMEOUT_MS = 4000;
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 
 /**
- * Create the PixelAgent proxy server. The caller is responsible for calling `.listen(...)`.
+ * Create the nudgit proxy server. The caller is responsible for calling `.listen(...)`.
  *
  * @param {{ target?: string, out?: string, overlayDir?: string, onQuit?: () => void,
  *   pickDirectory?: (opts: { title?: string, startDir?: string }) => Promise<{path: string}|{cancelled: true}>,

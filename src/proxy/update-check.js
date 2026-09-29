@@ -1,13 +1,13 @@
 // @ts-check
-// Checks the GitHub Releases API for a PixelAgent version newer than the one
+// Checks the GitHub Releases API for a nudgit version newer than the one
 // currently running. Never throws and never logs: any error, non-200
 // response, timeout, or malformed payload simply resolves to `null` so the
 // caller can treat "no update info" and "up to date" the same way. Sends
 // nothing but a generic User-Agent (with our own version) — no identifiers,
 // no query params.
 
-const RELEASES_URL = 'https://api.github.com/repos/bl0rb/PixelAgent/releases/latest';
-const MACOS_ASSET_NAME = 'PixelAgent-macos.zip';
+const RELEASES_URL = 'https://api.github.com/repos/bl0rb/nudgit/releases/latest';
+const MACOS_ASSET_NAME = 'nudgit-macos.zip';
 
 /**
  * Parse a "major.minor.patch[-pre][+build]" string, tolerant of a leading "v".
@@ -81,7 +81,7 @@ async function fetchLatest(currentVersion, fetchImpl, signal) {
     const res = await fetchImpl(RELEASES_URL, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': `PixelAgent/${currentVersion}`,
+        'User-Agent': `nudgit/${currentVersion}`,
       },
       signal,
     });
