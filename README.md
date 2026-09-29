@@ -205,6 +205,19 @@ it (selector, HTML snippet, breadcrumb).
 3. **Redirects**: `Location` headers are rewritten from the target origin to the proxy origin
 4. **Cookies**: the `Domain` attribute is removed; `Secure` is dropped when the proxy is http
 5. **WebSocket**: upgrades (e.g. Vite HMR) are passed through
+6. **Local backends**: a network shim (`/__uce/net-shim.js`, injected right
+   after `<head>`) rewrites `fetch`/`XHR`/`EventSource`/`WebSocket`/
+   `sendBeacon` calls the app makes to its own local backend (e.g. a portal on
+   `:3000` calling an API on `:8000`) so they go through
+   `/__uce/fwd/<scheme>/<host:port>/<path>` instead of hitting the backend
+   directly — the browser would otherwise send `Origin: <proxy origin>` and
+   get rejected by the backend's CORS policy. The fwd route sets `Host` to
+   the upstream host and rewrites `Origin`/`Referer` to the target's origin
+   (what the backend's CORS/CSRF checks expect), streams the response
+   (SSE/chat streaming works), and rewrites `Location`/`Set-Cookie` back to
+   the fwd path. Only loopback hosts (`localhost`, `*.localhost`,
+   `127.0.0.0/8`, `::1`) or a host matching the target's own hostname are
+   forwarded; anything else gets a 403.
 
 ### Security note
 

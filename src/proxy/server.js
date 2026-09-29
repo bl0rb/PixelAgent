@@ -12,8 +12,8 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
-import { injectScript } from './inject.js';
-import { stripSecurityHeaders, rewriteLocation, rewriteSetCookie } from './headers.js';
+import { injectScript, injectHeadScript } from './inject.js';
+import { stripSecurityHeaders, rewriteLocation, rewriteSetCookie, rewriteFwdLocation } from './headers.js';
 import { launcherHtml } from './launcher.js';
 import { pickLang, messages } from './i18n.js';
 
@@ -35,6 +35,10 @@ const MAX_JSON_BODY_BYTES = 64 * 1024;
 const REACHABILITY_TIMEOUT_MS = 700;
 const UPDATE_CHECK_TIMEOUT_MS = 4000;
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+/** Path prefix for `/__uce/fwd/<scheme>/<host:port>/<path>` requests (see `resolveFwd`). */
+const FWD_PREFIX = '/__uce/fwd/';
+/** Matches a fwd pathname; groups: scheme, host(:port), rest-of-path (with leading slash, or undefined for root). */
+const FWD_PATH_RE = /^\/__uce\/fwd\/(https?|wss?)\/([^/]+)(\/.*)?$/;
 
 /**
  * Create the nudgit proxy server. The caller is responsible for calling `.listen(...)`.
@@ -89,6 +93,15 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
 
   server.on('upgrade', (req, clientSocket, head) => {
     clientSocket.on('error', () => {});
+    const parsedUrl = new URL(/** @type {string} */ (req.url), 'http://internal');
+    if (parsedUrl.pathname.startsWith(FWD_PREFIX)) {
+      try {
+        handleFwdUpgrade(req, clientSocket, head, parsedUrl);
+      } catch {
+        clientSocket.destroy();
+      }
+      return;
+    }
     if (!currentTargetUrl) {
       clientSocket.destroy();
       return;
@@ -137,6 +150,9 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
    */
   function handleUceRoute(req, res, parsedUrl) {
     const proxyOrigin = `http://${req.headers.host}`;
+    if (parsedUrl.pathname.startsWith(FWD_PREFIX)) {
+      return handleFwd(req, res, parsedUrl, proxyOrigin);
+    }
     if (parsedUrl.pathname === '/__uce/') {
       if (req.method === 'GET') {
         return send(res, 200, 'text/html; charset=utf-8', launcherHtml(currentState()));
@@ -414,8 +430,11 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
         res.end(raw);
         return;
       }
-      const tag = `<script type="module" src="/__uce/overlay.js?target=${encodeURIComponent(targetUrl.href)}"></script>`;
-      const body = Buffer.from(injectScript(html.toString('utf-8'), tag), 'utf-8');
+      const netShimTag = `<script src="/__uce/net-shim.js?target=${encodeURIComponent(targetUrl.href)}"></script>`;
+      const overlayTag = `<script type="module" src="/__uce/overlay.js?target=${encodeURIComponent(targetUrl.href)}"></script>`;
+      let htmlStr = injectHeadScript(html.toString('utf-8'), netShimTag);
+      htmlStr = injectScript(htmlStr, overlayTag);
+      const body = Buffer.from(htmlStr, 'utf-8');
       delete headers['content-encoding'];
       delete headers['transfer-encoding'];
       headers['content-length'] = String(Buffer.byteLength(body));
@@ -482,6 +501,207 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
     proxyReq.on('error', () => clientSocket.destroy());
     proxyReq.end();
   }
+
+  /**
+   * Validate and resolve a `/__uce/fwd/<scheme>/<host:port>/<path>` pathname
+   * against the current target. Only loopback hosts (localhost, *.localhost,
+   * 127.0.0.0/8, ::1) or a host matching the current target's hostname are
+   * allowed, so the proxy can't be used as an open relay to arbitrary hosts.
+   *
+   * @param {string} pathname
+   * @returns {{ ok: true, scheme: 'http'|'https'|'ws'|'wss', host: string, hostname: string, port: number,
+   *   upstreamPath: string, isHttpsUpstream: boolean, upstreamOrigin: string, fwdPrefix: string } | { ok: false }}
+   */
+  function resolveFwd(pathname) {
+    if (!currentTargetUrl) return { ok: false };
+    const m = FWD_PATH_RE.exec(pathname);
+    if (!m) return { ok: false };
+    const scheme = /** @type {'http'|'https'|'ws'|'wss'} */ (m[1]);
+    const host = m[2];
+    const upstreamPath = m[3] || '/';
+    /** @type {URL} */
+    let hostUrl;
+    try {
+      hostUrl = new URL(`http://${host}`);
+    } catch {
+      return { ok: false };
+    }
+    const hostname = hostUrl.hostname;
+    if (!isAllowedFwdHost(hostname, currentTargetUrl.hostname)) return { ok: false };
+    const isHttpsUpstream = scheme === 'https' || scheme === 'wss';
+    const port = hostUrl.port ? Number(hostUrl.port) : isHttpsUpstream ? 443 : 80;
+    return {
+      ok: true,
+      scheme,
+      host,
+      hostname,
+      port,
+      upstreamPath,
+      isHttpsUpstream,
+      upstreamOrigin: `${isHttpsUpstream ? 'https' : 'http'}://${host}`,
+      fwdPrefix: `/__uce/fwd/${scheme}/${host}`,
+    };
+  }
+
+  /**
+   * Build the outgoing headers for a fwd request: same as the incoming
+   * request's headers, but with `Host` set to the upstream host and
+   * `Origin`/`Referer` rewritten to the main target's origin (what the
+   * backend's CORS/CSRF checks expect), not the proxy origin the browser
+   * actually sent the request from.
+   *
+   * @param {import('http').IncomingHttpHeaders} reqHeaders
+   * @param {string} host
+   * @param {string} proxyOrigin
+   * @param {string} targetOrigin
+   * @returns {import('http').OutgoingHttpHeaders}
+   */
+  function buildFwdRequestHeaders(reqHeaders, host, proxyOrigin, targetOrigin) {
+    const headers = /** @type {import('http').OutgoingHttpHeaders} */ ({ ...reqHeaders });
+    headers.host = host;
+    if (typeof headers.origin === 'string') headers.origin = targetOrigin;
+    if (typeof headers.referer === 'string' && headers.referer.startsWith(proxyOrigin)) {
+      headers.referer = targetOrigin + headers.referer.slice(proxyOrigin.length);
+    }
+    return headers;
+  }
+
+  /**
+   * Handle a `GET/POST/... /__uce/fwd/<scheme>/<host:port>/<path>` request:
+   * forward it to the given local backend and stream the response back
+   * unmodified except for security headers, Location and Set-Cookie (never
+   * buffered, so SSE/chat streaming responses work).
+   *
+   * @param {import('http').IncomingMessage} req
+   * @param {import('http').ServerResponse} res
+   * @param {URL} parsedUrl
+   * @param {string} proxyOrigin
+   */
+  function handleFwd(req, res, parsedUrl, proxyOrigin) {
+    const t = messages(pickLang(req.headers['accept-language']));
+    if (req.headers['sec-fetch-site'] === 'cross-site') return forbidden(req, res);
+    const resolved = resolveFwd(parsedUrl.pathname);
+    if (!resolved.ok) {
+      const m = FWD_PATH_RE.exec(parsedUrl.pathname);
+      return send(res, 403, 'text/plain; charset=utf-8', t.fwdHostNotAllowed(m ? m[2] : parsedUrl.pathname));
+    }
+    const { hostname, port, upstreamPath, isHttpsUpstream, upstreamOrigin, fwdPrefix } = resolved;
+    const targetOrigin = /** @type {URL} */ (currentTargetUrl).origin;
+    const headers = buildFwdRequestHeaders(req.headers, resolved.host, proxyOrigin, targetOrigin);
+
+    const requestModule = isHttpsUpstream ? https : http;
+    const proxyReq = requestModule.request(
+      {
+        hostname,
+        port,
+        path: upstreamPath + parsedUrl.search,
+        method: req.method,
+        headers,
+      },
+      (proxyRes) => {
+        const respHeaders = /** @type {import('http').OutgoingHttpHeaders} */ ({ ...proxyRes.headers });
+        stripSecurityHeaders(respHeaders);
+        if (respHeaders.location) {
+          const loc = Array.isArray(respHeaders.location) ? respHeaders.location[0] : respHeaders.location;
+          respHeaders.location = rewriteFwdLocation(String(loc), upstreamOrigin, targetOrigin, proxyOrigin, fwdPrefix);
+        }
+        if (respHeaders['set-cookie']) {
+          const cookies = Array.isArray(respHeaders['set-cookie'])
+            ? respHeaders['set-cookie']
+            : [String(respHeaders['set-cookie'])];
+          respHeaders['set-cookie'] = cookies.map((c) =>
+            rewriteSetCookie(c, { targetIsHttps: isHttpsUpstream, proxyIsHttps: false, pathPrefix: fwdPrefix }),
+          );
+        }
+        res.writeHead(/** @type {number} */ (proxyRes.statusCode), respHeaders);
+        proxyRes.on('error', () => res.destroy());
+        proxyRes.pipe(res);
+      },
+    );
+    proxyReq.on('error', () => {
+      if (!res.headersSent) {
+        send(res, 502, 'text/plain; charset=utf-8', t.gatewayError);
+      } else {
+        res.destroy();
+      }
+    });
+    req.on('error', () => proxyReq.destroy());
+    req.pipe(proxyReq);
+  }
+
+  /**
+   * Handle a WebSocket upgrade on a `/__uce/fwd/ws(s)/<host:port>/<path>` URL:
+   * same host allow-list and Origin/Referer rewriting as `handleFwd`, then
+   * pipe the raw sockets together once the upstream accepts the upgrade.
+   *
+   * @param {import('http').IncomingMessage} req
+   * @param {import('stream').Duplex} clientSocket
+   * @param {Buffer} head
+   * @param {URL} parsedUrl
+   */
+  function handleFwdUpgrade(req, clientSocket, head, parsedUrl) {
+    const reject = () => {
+      try {
+        clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      } catch {
+        // socket may already be gone; destroy() below covers it
+      }
+      clientSocket.destroy();
+    };
+    if (req.headers['sec-fetch-site'] === 'cross-site') return reject();
+    const resolved = resolveFwd(parsedUrl.pathname);
+    if (!resolved.ok) return reject();
+    const { hostname, port, upstreamPath, isHttpsUpstream } = resolved;
+    const proxyOrigin = `http://${req.headers.host}`;
+    const targetOrigin = /** @type {URL} */ (currentTargetUrl).origin;
+    const headers = buildFwdRequestHeaders(req.headers, resolved.host, proxyOrigin, targetOrigin);
+
+    const requestModule = isHttpsUpstream ? https : http;
+    const proxyReq = requestModule.request({
+      hostname,
+      port,
+      path: upstreamPath + parsedUrl.search,
+      method: req.method,
+      headers,
+    });
+
+    proxyReq.on('upgrade', (proxyRes, targetSocket, targetHead) => {
+      targetSocket.on('error', () => clientSocket.destroy());
+      const statusLine = `HTTP/1.1 ${proxyRes.statusCode} ${proxyRes.statusMessage}\r\n`;
+      const headerLines = Object.entries(proxyRes.headers)
+        .flatMap(([k, v]) => (Array.isArray(v) ? v.map((vv) => `${k}: ${vv}`) : [`${k}: ${v}`]))
+        .join('\r\n');
+      clientSocket.write(statusLine + headerLines + '\r\n\r\n');
+      if (targetHead && targetHead.length) targetSocket.unshift(targetHead);
+      if (head && head.length) clientSocket.unshift(head);
+      targetSocket.pipe(clientSocket);
+      clientSocket.pipe(targetSocket);
+    });
+    proxyReq.on('error', () => clientSocket.destroy());
+    proxyReq.end();
+  }
+}
+
+/**
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isLoopbackHost(hostname) {
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h === '::1') return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) return Number(m[1]) === 127;
+  return false;
+}
+
+/**
+ * @param {string} hostname
+ * @param {string} targetHostname
+ * @returns {boolean}
+ */
+function isAllowedFwdHost(hostname, targetHostname) {
+  return isLoopbackHost(hostname) || hostname.toLowerCase() === targetHostname.toLowerCase();
 }
 
 /**
