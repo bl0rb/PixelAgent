@@ -210,8 +210,17 @@ for (const [key, value] of plistEdits) {
   execFileSync('plutil', ['-replace', key, '-string', value, infoPlistPath], { stdio: 'inherit' });
 }
 
-// App icon: osacompile applets use Contents/Resources/applet.icns (CFBundleIconFile "applet").
+// App icon: replace osacompile's default applet.icns. osacompile also sets
+// CFBundleIconName, which newer macOS versions prefer and resolve from the
+// default Assets.car (the generic AppleScript icon) — remove both so macOS
+// falls back to CFBundleIconFile ("applet" → applet.icns).
 fs.cpSync(path.join(REPO_ROOT, 'assets', 'PixelAgent.icns'), path.join(resourcesDir, 'applet.icns'));
+fs.rmSync(path.join(resourcesDir, 'Assets.car'), { force: true });
+try {
+  execFileSync('plutil', ['-remove', 'CFBundleIconName', infoPlistPath], { stdio: 'ignore' });
+} catch {
+  // key not present (older osacompile) — nothing to remove
+}
 
 // Re-sign: adding resources after osacompile's own signing step invalidates
 // its signature. Ad-hoc (`-s -`) is enough to run locally and to be
