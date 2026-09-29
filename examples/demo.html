@@ -240,5 +240,17 @@
     document.body.appendChild(overlayScript);
   }
 </script>
+
+<script>
+  // Screenshot tooling only (scripts/make-screenshots.js): builds a
+  // deterministic demo state for the given scene. No effect without
+  // ?showcase=, so the plain demo is unchanged.
+  if (new URLSearchParams(window.location.search).has('showcase')) {
+    var showcaseScript = document.createElement('script');
+    showcaseScript.type = 'module';
+    showcaseScript.src = '/examples/showcase.js';
+    document.body.appendChild(showcaseScript);
+  }
+</script>
 </body>
 </html>

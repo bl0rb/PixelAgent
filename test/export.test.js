@@ -271,3 +271,17 @@ test('toMarkdown escapes a backtick in inline code with double backticks', () =>
   const doc = buildDocument([{ id: 1, type: 'remove', target: { selector: 'weird`sel', tag: 'div' } }], SOURCE);
   assert.ok(toMarkdown(doc).includes('- Selector: `` weird`sel ``'));
 });
+
+test('view group titles skip a breadcrumb prefix shared by all groups (e.g. the app title)', () => {
+  const loc = (crumb, hash) => ({ selector: '#x', tag: 'h3', name: 'X', breadcrumb: crumb, url: `http://localhost:4400/app${hash}` });
+  const doc = buildDocument(
+    [
+      { id: 1, type: 'comment', target: loc('Example App › Cards', '#cards'), note: 'a' },
+      { id: 2, type: 'comment', target: loc('Example App › Form › Contact', '#form'), note: 'b' },
+    ],
+    { url: 'http://localhost:4400/app', title: 'App', viewport: '1440×900', createdAt: '2026-09-29T08:00:00.000Z' },
+  );
+  const md = toMarkdown(doc);
+  assert.match(md, /^## Cards \(`\/app#cards`\)$/m);
+  assert.match(md, /^## Form \(`\/app#form`\)$/m);
+});

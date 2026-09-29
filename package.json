@@ -12,7 +12,8 @@
   "scripts": {
     "test": "node --test",
     "demo": "node examples/serve.js",
-    "app": "node scripts/make-app.js"
+    "app": "node scripts/make-app.js",
+    "screenshots": "node scripts/make-screenshots.js"
   },
   "repository": {
     "type": "git",
