@@ -52,14 +52,19 @@ export function rewriteLocation(location, targetOrigin, proxyOrigin) {
  * - if the target is https and the proxy is http, drop `Secure` and
  *   downgrade `SameSite=None` to `SameSite=Lax` (browsers reject
  *   `SameSite=None` without `Secure`)
+ * - when `pathPrefix` is given (used for `/__uce/fwd/...` forwarding), prefix
+ *   the `Path` attribute with it so the cookie only applies under the fwd
+ *   path the cookie actually came from (`Path=/api` -> `Path=<prefix>/api`;
+ *   a missing or root `Path` becomes `Path=<prefix>`)
  *
  * @param {string} cookie
- * @param {{ targetIsHttps: boolean, proxyIsHttps: boolean }} opts
+ * @param {{ targetIsHttps: boolean, proxyIsHttps: boolean, pathPrefix?: string }} opts
  * @returns {string}
  */
-export function rewriteSetCookie(cookie, { targetIsHttps, proxyIsHttps }) {
+export function rewriteSetCookie(cookie, { targetIsHttps, proxyIsHttps, pathPrefix }) {
   const parts = cookie.split(';').map((p) => p.trim());
   const downgrade = targetIsHttps && !proxyIsHttps;
+  let sawPath = false;
   const result = [];
   for (const part of parts) {
     const [rawName] = part.split('=');
@@ -73,7 +78,43 @@ export function rewriteSetCookie(cookie, { targetIsHttps, proxyIsHttps }) {
         continue;
       }
     }
+    if (pathPrefix !== undefined && name === 'path') {
+      sawPath = true;
+      const value = part.slice(part.indexOf('=') + 1).trim();
+      result.push(`Path=${value === '' || value === '/' ? pathPrefix : pathPrefix + value}`);
+      continue;
+    }
     result.push(part);
   }
+  if (pathPrefix !== undefined && !sawPath) {
+    result.push(`Path=${pathPrefix}`);
+  }
   return result.join('; ');
+}
+
+/**
+ * Rewrite a `Location` header from a `/__uce/fwd/...` response: absolute URLs
+ * pointing at the upstream origin (the actual host the request was forwarded
+ * to) or at the main target's origin (some backends echo back the rewritten
+ * `Origin`) are rewritten to the proxy origin under the fwd path prefix.
+ * Relative URLs and URLs pointing elsewhere are returned unchanged.
+ *
+ * @param {string} location
+ * @param {string} upstreamOrigin
+ * @param {string} targetOrigin
+ * @param {string} proxyOrigin
+ * @param {string} fwdPrefix
+ * @returns {string}
+ */
+export function rewriteFwdLocation(location, upstreamOrigin, targetOrigin, proxyOrigin, fwdPrefix) {
+  let url;
+  try {
+    url = new URL(location);
+  } catch {
+    return location;
+  }
+  if (url.origin === upstreamOrigin || url.origin === targetOrigin) {
+    return proxyOrigin + fwdPrefix + url.pathname + url.search + url.hash;
+  }
+  return location;
 }
