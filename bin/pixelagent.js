@@ -11,6 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { createProxy } from '../src/proxy/server.js';
 import { checkForUpdate } from '../src/proxy/update-check.js';
 
+const MIN_NODE_MAJOR = 22;
+if (Number(process.versions.node.split('.')[0]) < MIN_NODE_MAJOR) {
+  console.error(`PixelAgent needs Node.js ${MIN_NODE_MAJOR} or newer (found ${process.versions.node}).`);
+  process.exit(1);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
 const CURRENT_VERSION = PACKAGE_JSON.version;

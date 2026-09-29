@@ -134,7 +134,7 @@ on validNodeOrEmpty(candidatePath)
 	end try
 	try
 		set verStr to do shell script quoted form of candidatePath & " -v"
-		if my majorVersionOf(verStr) ≥ 20 then return candidatePath
+		if my majorVersionOf(verStr) ≥ 22 then return candidatePath
 	end try
 	return ""
 end validNodeOrEmpty
@@ -158,11 +158,11 @@ on showNodeMissingDialog()
 		set isGerman to (user locale of (system info)) starts with "de"
 	end try
 	if isGerman then
-		set msgText to "Node.js (Version 20 oder neuer) wurde nicht gefunden. PixelAgent benötigt Node.js, um zu starten."
+		set msgText to "Node.js (Version 22 oder neuer) wurde nicht gefunden. PixelAgent benötigt Node.js, um zu starten."
 		set btnDownload to "Node.js herunterladen"
 		set btnCancel to "Abbrechen"
 	else
-		set msgText to "Node.js (version 20 or newer) was not found. PixelAgent needs Node.js to run."
+		set msgText to "Node.js (version 22 or newer) was not found. PixelAgent needs Node.js to run."
 		set btnDownload to "Download Node.js"
 		set btnCancel to "Cancel"
 	end if
