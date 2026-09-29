@@ -37,6 +37,7 @@ nudgit [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--
 
 - `[target-url]`: full URL of the target app, e.g. `http://localhost:8787/admin`. If omitted, nudgit starts in launcher mode (see below)
 - `--port 4400`: proxy port (default: 4400)
+- `--host 127.0.0.1`: address to listen on. By default nudgit only listens on the loopback addresses (127.0.0.1 and ::1), so only this machine can reach it; use e.g. `--host 0.0.0.0` (or `NUDGIT_HOST`) only when others should reach it
 - `--out ui-changes.md`: path for the change list, relative to the current working directory (default: `./ui-changes.md`)
 - `--open`: open the browser (already the default in launcher mode)
 - `--no-open`: don't open the browser automatically
@@ -182,6 +183,11 @@ it (selector, HTML snippet, breadcrumb).
 5. **WebSocket**: upgrades (e.g. Vite HMR) are passed through
 
 ### Security note
+
+nudgit only listens on 127.0.0.1 and ::1 unless you pass `--host`. Anyone who
+can reach it can browse the target app through it (without its CSP /
+X-Frame-Options), switch the target and write `ui-changes.md`, so only expose
+it on a trusted network.
 
 Cross-origin requests to `/__uce/*` (export, target, quit) are rejected: the
 proxy checks the `Origin`/`Sec-Fetch-Site` headers and only accepts requests
