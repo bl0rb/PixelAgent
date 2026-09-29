@@ -10,8 +10,10 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { JSDOM } from 'jsdom';
 
 import { createProxy } from '../src/proxy/server.js';
+import { launcherHtml } from '../src/proxy/launcher.js';
 import { APPLESCRIPT } from '../src/proxy/pick-dir.js';
 
 /** @returns {Promise<import('http').Server>} */
@@ -67,6 +69,7 @@ let quitCalls = 0;
 const proxy = createProxy({
   out: outFile,
   overlayDir,
+  updateCheck: false,
   onQuit: () => {
     quitCalls++;
   },
@@ -82,15 +85,43 @@ const fakePicker = { impl: async () => ({ cancelled: true }) };
 const pickerProxy = createProxy({
   out: path.join(tmpDir, 'picker-ui-changes.md'),
   overlayDir,
+  updateCheck: false,
   pickDirectory: (opts) => fakePicker.impl(opts),
 });
 await new Promise((resolve) => pickerProxy.listen(0, resolve));
 const pickerAddress = pickerProxy.address();
 const pickerPort = typeof pickerAddress === 'object' && pickerAddress ? pickerAddress.port : 0;
 
+// Two more proxy instances with an injected update checker, so /__uce/update
+// tests never hit the real GitHub API.
+const updateInfoFixture = {
+  current: '1.0.1',
+  latest: '1.0.2',
+  url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+};
+const updateProxy = createProxy({
+  out: path.join(tmpDir, 'update-ui-changes.md'),
+  overlayDir,
+  updateCheck: () => Promise.resolve(updateInfoFixture),
+});
+await new Promise((resolve) => updateProxy.listen(0, resolve));
+const updateAddress = updateProxy.address();
+const updatePort = typeof updateAddress === 'object' && updateAddress ? updateAddress.port : 0;
+
+const noUpdateProxy = createProxy({
+  out: path.join(tmpDir, 'no-update-ui-changes.md'),
+  overlayDir,
+  updateCheck: () => Promise.resolve(null),
+});
+await new Promise((resolve) => noUpdateProxy.listen(0, resolve));
+const noUpdateAddress = noUpdateProxy.address();
+const noUpdatePort = typeof noUpdateAddress === 'object' && noUpdateAddress ? noUpdateAddress.port : 0;
+
 after(async () => {
   await new Promise((resolve) => proxy.close(resolve));
   await new Promise((resolve) => pickerProxy.close(resolve));
+  await new Promise((resolve) => updateProxy.close(resolve));
+  await new Promise((resolve) => noUpdateProxy.close(resolve));
   await new Promise((resolve) => targetServer.close(resolve));
   await fsp.rm(tmpDir, { recursive: true, force: true });
 });
@@ -116,6 +147,11 @@ test('GET /__uce/ serves the bilingual launcher page (en default, de embedded fo
   assert.match(html, /id="uce-lang-de"/);
   assert.match(html, /uce-lang/);
   assert.match(html, /localhost:3000\/admin/);
+  assert.match(html, /id="uce-update-banner"/);
+  assert.match(html, /View release/);
+  assert.match(html, /Release ansehen/);
+  assert.match(html, /Download macOS app/);
+  assert.match(html, /macOS-App laden/);
 });
 
 test('GET /__uce/state reports no target initially', async () => {
@@ -315,6 +351,127 @@ test('POST /__uce/pick-dir: a second request while a dialog is open gets 409', a
   assert.equal(first.statusCode, 200);
 });
 
+// ---------------------------------------------------------------------------
+// GET /__uce/update
+// ---------------------------------------------------------------------------
+
+test('GET /__uce/update returns the injected update info with checked:true when an update is available', async () => {
+  const res = await request(updatePort, { path: '/__uce/update' });
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body.toString('utf-8'));
+  assert.deepEqual(data, { update: updateInfoFixture, checked: true });
+});
+
+test('GET /__uce/update returns update:null with checked:true when no update is available', async () => {
+  const res = await request(noUpdatePort, { path: '/__uce/update' });
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body.toString('utf-8'));
+  assert.deepEqual(data, { update: null, checked: true });
+});
+
+test('GET /__uce/update returns update:null with checked:false when the update check is disabled', async () => {
+  const res = await request(proxyPort, { path: '/__uce/update' });
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body.toString('utf-8'));
+  assert.deepEqual(data, { update: null, checked: false });
+});
+
+// ---------------------------------------------------------------------------
+// Launcher page update banner (client-side script, driven via jsdom)
+// ---------------------------------------------------------------------------
+
+test('launcher page: shows the update banner and hides+remembers it on dismiss', async () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
+  const info = { current: '1.0.1', latest: '1.0.2', url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2' };
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.fetch = (/** @type {string} */ url) => {
+        if (url === '/__uce/update') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ update: info, checked: true }) });
+        }
+        return Promise.reject(new Error(`unexpected fetch ${url}`));
+      };
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const { window } = dom;
+  const banner = /** @type {any} */ (window.document.getElementById('uce-update-banner'));
+  assert.equal(banner.hidden, false);
+  const text = window.document.getElementById('uce-update-text').textContent;
+  assert.match(text, /1\.0\.2/);
+  assert.match(text, /1\.0\.1/);
+  const link = /** @type {any} */ (window.document.getElementById('uce-update-link'));
+  assert.equal(link.href, info.url);
+  assert.equal(link.target, '_blank');
+  assert.match(link.rel, /noopener/);
+  assert.equal(/** @type {any} */ (window.document.getElementById('uce-update-download')).hidden, true);
+
+  window.document.getElementById('uce-update-dismiss').dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.equal(banner.hidden, true);
+  assert.equal(window.localStorage.getItem('uce-update-dismissed'), '1.0.2');
+});
+
+test('launcher page: shows the macOS download link only when downloadUrl is present and the UA looks like macOS', async () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
+  const info = {
+    current: '1.0.1',
+    latest: '1.0.2',
+    url: 'https://github.com/bl0rb/PixelAgent/releases/tag/v1.0.2',
+    downloadUrl: 'https://github.com/bl0rb/PixelAgent/releases/download/v1.0.2/PixelAgent-macos.zip',
+  };
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    resources: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15' },
+    beforeParse(window) {
+      window.fetch = (/** @type {string} */ url) => {
+        if (url === '/__uce/update') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ update: info, checked: true }) });
+        }
+        return Promise.reject(new Error(`unexpected fetch ${url}`));
+      };
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const downloadLink = /** @type {any} */ (dom.window.document.getElementById('uce-update-download'));
+  assert.equal(downloadLink.hidden, false);
+  assert.equal(downloadLink.href, info.downloadUrl);
+});
+
+test('launcher page: shows nothing when there is no update', async () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ update: null, checked: true }) });
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(/** @type {any} */ (dom.window.document.getElementById('uce-update-banner')).hidden, true);
+});
+
+test('launcher page: shows nothing when the update check request fails', async () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.fetch = () => Promise.reject(new Error('network down'));
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(/** @type {any} */ (dom.window.document.getElementById('uce-update-banner')).hidden, true);
+});
+
 test('the macOS AppleScript source compiles (osacompile), without ever running it', async (t) => {
   if (process.platform !== 'darwin') {
     t.skip('osacompile only available on macOS');
@@ -331,4 +488,21 @@ test('the macOS AppleScript source compiles (osacompile), without ever running i
   });
   await fsp.rm(outFile2, { force: true });
   await fsp.rm(srcFile, { force: true });
+});
+
+test('launcher icons are served from /__uce/static/ and as /favicon.ico without a target', async () => {
+  const png = await request(pickerPort, { path: '/__uce/static/favicon-32.png' });
+  assert.equal(png.statusCode, 200);
+  assert.equal(png.headers['content-type'], 'image/png');
+  assert.deepEqual([...png.body.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  const svg = await request(pickerPort, { path: '/__uce/static/icon.svg' });
+  assert.equal(svg.statusCode, 200);
+  assert.equal(svg.headers['content-type'], 'image/svg+xml');
+  const ico = await request(pickerPort, { path: '/favicon.ico' });
+  assert.equal(ico.statusCode, 200);
+  assert.equal(ico.headers['content-type'], 'image/png');
+  assert.equal((await request(pickerPort, { path: '/__uce/static/../server.js' })).statusCode, 404);
+  assert.equal((await request(pickerPort, { path: '/__uce/static/nope.png' })).statusCode, 404);
+  const html = (await request(pickerPort, { path: '/__uce/' })).body.toString();
+  assert.match(html, /<link rel="icon" type="image\/png" sizes="32x32" href="\/__uce\/static\/favicon-32.png">/);
 });

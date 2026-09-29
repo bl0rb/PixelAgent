@@ -23,7 +23,7 @@ npm link   # optional: makes the `pixelagent` command available globally
 ```
 
 ```bash
-pixelagent [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open]
+pixelagent [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]
 ```
 
 - `[target-url]`: full URL of the target app, e.g. `http://localhost:8787/admin`. If omitted, PixelAgent starts in launcher mode (see below)
@@ -31,6 +31,7 @@ pixelagent [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open]
 - `--out ui-changes.md`: path for the change list, relative to the current working directory (default: `./ui-changes.md`)
 - `--open`: open the browser (already the default in launcher mode)
 - `--no-open`: don't open the browser automatically
+- `--no-update-check`: don't check for a newer release on startup (see [Update check](#update-check))
 
 Example:
 ```bash
@@ -187,6 +188,24 @@ choice is stored in `localStorage` and shared between both. Markdown export
 is meant to be read by coding agents. Server-side texts (error messages, the
 502 page) follow the browser's `Accept-Language` header. CLI output is
 English only.
+
+## Update check
+
+On startup, PixelAgent does one GET request to the public GitHub API
+(`https://api.github.com/repos/bl0rb/PixelAgent/releases/latest`) to see
+whether a newer release exists, with a generic `User-Agent: PixelAgent/<version>`
+header — no telemetry, no identifiers, no query params, and nothing about your
+installation, target app, or usage is sent. The request has a ~3s timeout and
+fails silently (no console error) if it can't complete.
+
+- If a newer version is found, the CLI prints one line on startup (e.g. `A new
+  PixelAgent version is available: 1.0.2 (you have 1.0.1) – <release URL>`),
+  and the launcher page (`/__uce/`) shows a dismissible banner with a link to
+  the release and, on macOS, a link to download the app if the release has a
+  `PixelAgent-macos.zip` asset. Dismissing the banner is remembered per
+  version in `localStorage`.
+- Disable it with `--no-update-check` or the environment variable
+  `PIXELAGENT_NO_UPDATE_CHECK=1`.
 
 ## Snippet for target repos
 

@@ -13,5 +13,9 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$tmp/PixelAgent.iconset" -o PixelAgent.icns
 sips -s format png -z 512 512 icon.svg --out icon-512.png >/dev/null
+# launcher favicons (served by the proxy under /__uce/static/)
+cp icon.svg ../src/proxy/static/icon.svg
+sips -s format png -z 32 32 icon.svg --out ../src/proxy/static/favicon-32.png >/dev/null
+sips -s format png -z 180 180 icon.svg --out ../src/proxy/static/apple-touch-icon.png >/dev/null
 rm -rf "$tmp"
 echo "Icons written to $(pwd)"

@@ -83,6 +83,19 @@ const STYLE = `
     background: transparent; color: inherit; border: 1px solid rgba(127,127,127,0.4);
   }
   .uce-langtoggle button.uce-lang-active { opacity: 1; background: rgba(127,127,127,0.15); }
+  .uce-update-banner {
+    position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+    margin: 0 0 18px; padding: 10px 30px 10px 12px;
+    background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.35);
+    border-radius: 8px; font-size: 12.5px; line-height: 1.5;
+  }
+  .uce-update-banner[hidden] { display: none; }
+  .uce-update-banner a { color: inherit; font-weight: 600; text-decoration: underline; }
+  .uce-update-dismiss {
+    position: absolute; top: 4px; right: 4px; background: transparent; color: inherit;
+    opacity: 0.6; padding: 2px 7px; font-size: 14px; line-height: 1; border: none;
+  }
+  .uce-update-dismiss:hover { opacity: 1; }
 `;
 
 const SCRIPT = `
@@ -105,7 +118,13 @@ const SCRIPT = `
       pickDirError: 'Could not open the folder dialog.',
       errMissingUrl: 'Please provide a target URL.',
       errUnreachable: 'Server unreachable.',
-      errUnknown: 'Unknown error.'
+      errUnknown: 'Unknown error.',
+      updateAvailable: function (latest, current) {
+        return 'New version ' + latest + ' available (installed: ' + current + ')';
+      },
+      viewRelease: 'View release',
+      downloadMacApp: 'Download macOS app',
+      dismissUpdate: 'Dismiss'
     },
     de: {
       title: 'PixelAgent',
@@ -124,7 +143,13 @@ const SCRIPT = `
       pickDirError: 'Ordnerauswahl konnte nicht geöffnet werden.',
       errMissingUrl: 'Bitte eine Ziel-URL angeben.',
       errUnreachable: 'Server nicht erreichbar.',
-      errUnknown: 'Unbekannter Fehler.'
+      errUnknown: 'Unbekannter Fehler.',
+      updateAvailable: function (latest, current) {
+        return 'Neue Version ' + latest + ' verfügbar (installiert: ' + current + ')';
+      },
+      viewRelease: 'Release ansehen',
+      downloadMacApp: 'macOS-App laden',
+      dismissUpdate: 'Schließen'
     }
   };
   var LANG_KEY = 'uce-lang';
@@ -148,8 +173,15 @@ const SCRIPT = `
   var stateOutLabelEl = document.getElementById('uce-state-out-label');
   var langEnBtn = document.getElementById('uce-lang-en');
   var langDeBtn = document.getElementById('uce-lang-de');
+  var updateBannerEl = document.getElementById('uce-update-banner');
+  var updateTextEl = document.getElementById('uce-update-text');
+  var updateLinkEl = document.getElementById('uce-update-link');
+  var updateDownloadEl = document.getElementById('uce-update-download');
+  var updateDismissBtn = document.getElementById('uce-update-dismiss');
 
   var lang = 'en';
+  var updateInfo = null;
+  var UPDATE_DISMISS_KEY = 'uce-update-dismissed';
 
   function pickInitialLang() {
     try {
@@ -180,7 +212,74 @@ const SCRIPT = `
     langEnBtn.classList.toggle('uce-lang-active', lang === 'en');
     langDeBtn.classList.toggle('uce-lang-active', lang === 'de');
     renderRecent();
+    applyUpdateBanner();
   }
+
+  function isMac() {
+    try {
+      return /Mac/i.test(navigator.userAgent || '');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isUpdateDismissed(version) {
+    try {
+      return localStorage.getItem(UPDATE_DISMISS_KEY) === version;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function applyUpdateBanner() {
+    var s = STRINGS[lang] || STRINGS.en;
+    if (!updateInfo) {
+      updateBannerEl.hidden = true;
+      return;
+    }
+    updateTextEl.textContent = s.updateAvailable(updateInfo.latest, updateInfo.current);
+    updateLinkEl.textContent = s.viewRelease;
+    updateLinkEl.href = updateInfo.url;
+    updateDismissBtn.title = s.dismissUpdate;
+    updateDismissBtn.setAttribute('aria-label', s.dismissUpdate);
+    if (updateInfo.downloadUrl && isMac()) {
+      updateDownloadEl.textContent = s.downloadMacApp;
+      updateDownloadEl.href = updateInfo.downloadUrl;
+      updateDownloadEl.hidden = false;
+    } else {
+      updateDownloadEl.hidden = true;
+    }
+    updateBannerEl.hidden = false;
+  }
+
+  function dismissUpdate() {
+    if (!updateInfo) return;
+    try {
+      localStorage.setItem(UPDATE_DISMISS_KEY, updateInfo.latest);
+    } catch (e) {
+      // localStorage unavailable; the dismissal just won't persist
+    }
+    updateInfo = null;
+    applyUpdateBanner();
+  }
+
+  function fetchUpdate() {
+    fetch('/__uce/update')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.update || isUpdateDismissed(data.update.latest)) return;
+        updateInfo = data.update;
+        applyUpdateBanner();
+      })
+      .catch(function () {
+        // Update check failed or is unavailable; show nothing.
+      });
+  }
+
+  updateDismissBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    dismissUpdate();
+  });
 
   function setLang(next) {
     try {
@@ -356,6 +455,7 @@ const SCRIPT = `
   langDeBtn.addEventListener('click', function () { setLang('de'); });
 
   applyLang(pickInitialLang());
+  fetchUpdate();
 })();
 `;
 
@@ -378,7 +478,9 @@ export function launcherHtml(state) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PixelAgent</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJwYWJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNjM1YmZmIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYzAyNmQzIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9InVybCgjcGFiZykiLz48ZyBmaWxsPSJub25lIiBzdHJva2U9IiNlOWUzZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSI+PHBhdGggZD0iTTEyIDIwIFYxMiBIMjAiLz48cGF0aCBkPSJNMzQgMTIgSDQyIFYyMCIvPjxwYXRoIGQ9Ik0xMiAzNCBWNDIgSDIwIi8+PC9nPjxnIGZpbGw9IiMyYTFhN2EiIG9wYWNpdHk9Ii40NSI+PHJlY3QgeD0iMjUuNSIgeT0iMTkuNSIgd2lkdGg9IjMiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iMjIuNSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iMjUuNSIgd2lkdGg9IjkiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iMjguNSIgd2lkdGg9IjEyIiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI1LjUiIHk9IjMxLjUiIHdpZHRoPSIxNSIgaGVpZ2h0PSIzLjIiLz48cmVjdCB4PSIyNS41IiB5PSIzNC41IiB3aWR0aD0iMTgiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iMzcuNSIgd2lkdGg9IjIxIiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI1LjUiIHk9IjQwLjUiIHdpZHRoPSIyNCIgaGVpZ2h0PSIzLjIiLz48cmVjdCB4PSIyNS41IiB5PSI0My41IiB3aWR0aD0iMTUiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iNDYuNSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMzQuNSIgeT0iNDYuNSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjUuNSIgeT0iNDkuNSIgd2lkdGg9IjMiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMzcuNSIgeT0iNDkuNSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iNDAuNSIgeT0iNTIuNSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PC9nPjxnIGZpbGw9IiNmZmZmZmYiPjxyZWN0IHg9IjI0IiB5PSIxOCIgd2lkdGg9IjMiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMjQiIHk9IjIxIiB3aWR0aD0iNiIgaGVpZ2h0PSIzLjIiLz48cmVjdCB4PSIyNCIgeT0iMjQiIHdpZHRoPSI5IiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSIyNyIgd2lkdGg9IjEyIiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSIzMCIgd2lkdGg9IjE1IiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSIzMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSIzNiIgd2lkdGg9IjIxIiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSIzOSIgd2lkdGg9IjI0IiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSI0MiIgd2lkdGg9IjE1IiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjI0IiB5PSI0NSIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMzMiIHk9IjQ1IiB3aWR0aD0iNiIgaGVpZ2h0PSIzLjIiLz48cmVjdCB4PSIyNCIgeT0iNDgiIHdpZHRoPSIzIiBoZWlnaHQ9IjMuMiIvPjxyZWN0IHg9IjM2IiB5PSI0OCIgd2lkdGg9IjYiIGhlaWdodD0iMy4yIi8+PHJlY3QgeD0iMzkiIHk9IjUxIiB3aWR0aD0iNiIgaGVpZ2h0PSIzLjIiLz48L2c+PHBhdGggZD0iTTUwIDcgTDUxLjc1IDEyLjI1IEw1NyAxNCBMNTEuNzUgMTUuNzUgTDUwIDIxIEw0OC4yNSAxNS43NSBMNDMgMTQgTDQ4LjI1IDEyLjI1IFoiIGZpbGw9IiNmZmZmZmYiLz48cGF0aCBkPSJNNTcgMjEuNSBMNTcuODc1IDI0LjEyNSBMNjAuNSAyNSBMNTcuODc1IDI1Ljg3NSBMNTcgMjguNSBMNTYuMTI1IDI1Ljg3NSBMNTMuNSAyNSBMNTYuMTI1IDI0LjEyNSBaIiBmaWxsPSIjZjVkMGZlIi8+PC9zdmc+">
+<link rel="icon" type="image/png" sizes="32x32" href="/__uce/static/favicon-32.png">
+<link rel="icon" type="image/svg+xml" href="/__uce/static/icon.svg">
+<link rel="apple-touch-icon" href="/__uce/static/apple-touch-icon.png">
 <style>${STYLE}</style>
 </head>
 <body>
@@ -388,6 +490,12 @@ export function launcherHtml(state) {
       <button type="button" id="uce-lang-de">DE</button>
     </div>
     <h1 id="uce-title">PixelAgent</h1>
+    <div class="uce-update-banner" id="uce-update-banner" hidden>
+      <span id="uce-update-text"></span>
+      <a id="uce-update-link" href="#" target="_blank" rel="noopener"></a>
+      <a id="uce-update-download" href="#" target="_blank" rel="noopener" hidden></a>
+      <button type="button" class="uce-update-dismiss" id="uce-update-dismiss" aria-label="Dismiss">&times;</button>
+    </div>
     <form id="uce-form">
       <label for="uce-url" id="uce-url-label">Target URL</label>
       <input type="text" id="uce-url" name="url" autofocus autocomplete="off" placeholder="http://localhost:3000/admin">

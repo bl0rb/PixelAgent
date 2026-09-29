@@ -225,7 +225,7 @@ await fsp.mkdir(overlayDir, { recursive: true });
 await fsp.writeFile(path.join(overlayDir, 'index.js'), '// fake overlay\nexport const marker = "overlay";\n');
 const outFile = path.join(tmpDir, 'ui-changes.md');
 
-const proxy = createProxy({ target: targetOrigin, out: outFile, overlayDir });
+const proxy = createProxy({ target: targetOrigin, out: outFile, overlayDir, updateCheck: false });
 await new Promise((resolve) => proxy.listen(0, resolve));
 const proxyAddress = proxy.address();
 const proxyPort = typeof proxyAddress === 'object' && proxyAddress ? proxyAddress.port : 0;
@@ -329,6 +329,7 @@ test('responds 502 without crashing; message language follows Accept-Language (a
     target: `http://localhost:${deadPort}`,
     out: path.join(tmpDir, 'dead.md'),
     overlayDir,
+    updateCheck: false,
   });
   await new Promise((resolve) => deadProxy.listen(0, resolve));
   const deadAddress = deadProxy.address();
@@ -376,6 +377,7 @@ test('WebSocket upgrade to a dead target does not crash the proxy; proxy still a
     target: `http://localhost:${deadPort}`,
     out: path.join(tmpDir, 'dead-ws.md'),
     overlayDir,
+    updateCheck: false,
   });
   await new Promise((resolve) => deadProxy.listen(0, resolve));
   const deadAddress = deadProxy.address();
