@@ -70,6 +70,16 @@ jobs:
       - name: Verify ad-hoc code signature
         run: codesign --verify --deep --strict dist/PixelAgent.app
 
+      # CFBundleIconName would make macOS show osacompile's generic
+      # AppleScript icon from Assets.car instead of our applet.icns.
+      - name: Verify app icon
+        run: |
+          if plutil -extract CFBundleIconName raw dist/PixelAgent.app/Contents/Info.plist >/dev/null 2>&1; then
+            echo "CFBundleIconName must not be set"; exit 1
+          fi
+          test ! -e dist/PixelAgent.app/Contents/Resources/Assets.car
+          cmp assets/PixelAgent.icns dist/PixelAgent.app/Contents/Resources/applet.icns
+
       # Building the .app is not enough: run the bundled runtime the way the
       # AppleScript wrapper does, and confirm it answers and shuts down
       # cleanly on POST /__uce/quit (this is what "on quit" relies on).
