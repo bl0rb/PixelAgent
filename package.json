@@ -1,6 +1,6 @@
 {
   "name": "nudgit",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Edit, move and annotate elements directly in your browser. Turn visual feedback into actionable instructions for your coding agent.",
   "type": "module",
   "bin": {
