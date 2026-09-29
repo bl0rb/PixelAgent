@@ -154,6 +154,16 @@ test('checkForUpdate: a fetch that never resolves times out -> null', async () =
   assert.equal(info, null);
 });
 
+test('checkForUpdate: a fetch that ignores the abort signal still times out -> null', async () => {
+  const ignoringFetch = () => new Promise(() => {});
+  const info = await checkForUpdate({
+    currentVersion: '1.0.0',
+    fetchImpl: /** @type {any} */ (ignoringFetch),
+    timeoutMs: 30,
+  });
+  assert.equal(info, null);
+});
+
 test('checkForUpdate: requests the expected URL/headers and nothing else (no identifiers, no query params)', async () => {
   /** @type {{ url?: string, options?: any }} */
   const captured = {};
