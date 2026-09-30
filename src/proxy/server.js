@@ -7,6 +7,8 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import tls from 'node:tls';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -62,7 +64,8 @@ const FWD_PATH_RE = /^\/__uce\/fwd\/(https?|wss?)\/([^/]+)(\/.*)?$/;
  *   from GET /__uce/update. Omitted or `false` disables the check entirely
  *   (`/__uce/update` then always answers `{ update: null, checked: false }`).
  *   `forwardHosts` lists extra hostnames (e.g. a remote dev API) the fwd route
- *   may forward to, in addition to loopback hosts and the target's hostname.
+ *   may forward to, in addition to loopback hosts and the target's hostname;
+ *   the launcher can replace the list at runtime via POST /__uce/target.
  * @returns {import('http').Server}
  */
 export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, updateCheck, forwardHosts = [] } = {}) {
@@ -70,7 +73,9 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
   let currentTargetUrl = target ? new URL(target) : null;
   let currentOut = path.resolve(out || path.join(process.cwd(), 'ui-changes.md'));
   const resolvedOverlayDir = path.resolve(overlayDir || DEFAULT_OVERLAY_DIR);
-  const extraFwdHosts = forwardHosts.map((h) => h.trim().toLowerCase()).filter(Boolean);
+  let extraFwdHosts = parseForwardHosts(forwardHosts);
+  /** @type {{ ca?: string[] }} extra trusted CA certificates for https upstreams (set via the launcher) */
+  let tlsOptions = {};
   const pickDirFn = pickDirectory || defaultPickDirectory;
   const canPickDir = pickDirectory ? true : isPickDirSupported();
   let pickDirBusy = false;
@@ -209,7 +214,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
 
   /** @returns {{ target: string|null, out: string, canPickDir: boolean }} */
   function currentState() {
-    return { target: currentTargetUrl ? currentTargetUrl.href : null, out: currentOut, canPickDir };
+    return { target: currentTargetUrl ? currentTargetUrl.href : null, out: currentOut, canPickDir, forwardHosts: extraFwdHosts };
   }
 
   /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res @param {string} relPath */
@@ -300,9 +305,19 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
         return sendJson(res, 400, { error: t.dirNotFound(outDir) });
       }
       if (!stat.isDirectory()) return sendJson(res, 400, { error: t.notADir(outDir) });
+      const nextFwdHosts = data?.forwardHosts === undefined ? null : parseForwardHosts(data.forwardHosts);
+      /** @type {{ ca?: string[] }|null} */
+      let nextTlsOptions = null;
+      if (typeof data?.caCerts === 'string') {
+        const certs = data.caCerts.trim() ? parseCaCerts(data.caCerts) : [];
+        if (!certs) return sendJson(res, 400, { error: t.invalidCaCert });
+        nextTlsOptions = certs.length ? { ca: [...tls.rootCertificates, ...certs] } : {};
+      }
 
-      checkReachable(parsed, (reachable) => {
+      checkReachable(parsed, nextTlsOptions || tlsOptions, (reachable) => {
         currentTargetUrl = parsed;
+        if (nextFwdHosts) extraFwdHosts = nextFwdHosts;
+        if (nextTlsOptions) tlsOptions = nextTlsOptions;
         currentOut = path.join(outDir, 'ui-changes.md');
         const openPath = `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
         /** @type {{ ok: true, path: string, warning?: string }} */
@@ -396,6 +411,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
         path: req.url,
         method: req.method,
         headers,
+        ...tlsOptions,
       },
       (proxyRes) => handleProxyResponse(req, res, proxyRes, proxyOrigin, targetUrl),
     );
@@ -500,6 +516,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       path: req.url,
       method: req.method,
       headers,
+      ...tlsOptions,
     });
 
     proxyReq.on('upgrade', (proxyRes, targetSocket, targetHead) => {
@@ -616,6 +633,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
         path: upstreamPath + parsedUrl.search,
         method: req.method,
         headers,
+        ...tlsOptions,
       },
       (proxyRes) => {
         const respHeaders = /** @type {import('http').OutgoingHttpHeaders} */ ({ ...proxyRes.headers });
@@ -682,6 +700,7 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       path: upstreamPath + parsedUrl.search,
       method: req.method,
       headers,
+      ...tlsOptions,
     });
 
     proxyReq.on('upgrade', (proxyRes, targetSocket, targetHead) => {
@@ -712,6 +731,49 @@ function isLoopbackHost(hostname) {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
   if (m) return Number(m[1]) === 127;
   return false;
+}
+
+/**
+ * Normalize `--forward-host` / launcher input to lowercase hostnames: accepts
+ * an array and/or comma- or whitespace-separated strings; full URLs (e.g.
+ * copied from a console error) are reduced to their hostname.
+ *
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+function parseForwardHosts(value) {
+  /** @type {string[]} */
+  const hosts = [];
+  for (const item of Array.isArray(value) ? value : [value]) {
+    if (typeof item !== 'string') continue;
+    for (const part of item.split(/[\s,]+/)) {
+      if (!part) continue;
+      try {
+        const hostname = new URL(SCHEME_RE.test(part) ? part : `http://${part}`).hostname.toLowerCase();
+        if (hostname && !hosts.includes(hostname)) hosts.push(hostname);
+      } catch {
+        // not a valid host; ignore it
+      }
+    }
+  }
+  return hosts;
+}
+
+/**
+ * Split PEM text into its certificates and check that each parses as X.509.
+ *
+ * @param {string} pem
+ * @returns {string[]|null} the certificates, or null if there are none or one is invalid
+ */
+function parseCaCerts(pem) {
+  const certs = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
+  if (!certs) return null;
+  try {
+    for (const cert of certs) new crypto.X509Certificate(cert);
+  } catch {
+    return null;
+  }
+  return certs;
 }
 
 /**
@@ -777,9 +839,10 @@ function readJsonBody(req, cb) {
  * Best-effort reachability check with a short timeout; never rejects, only
  * reports true/false via the callback (used for a warning, not a hard failure).
  * @param {URL} url
+ * @param {{ ca?: string[] }} tlsOptions
  * @param {(reachable: boolean) => void} cb
  */
-function checkReachable(url, cb) {
+function checkReachable(url, tlsOptions, cb) {
   const mod = url.protocol === 'https:' ? https : http;
   let done = false;
   /** @param {boolean} ok */
@@ -796,6 +859,7 @@ function checkReachable(url, cb) {
         path: '/',
         method: 'HEAD',
         timeout: REACHABILITY_TIMEOUT_MS,
+        ...tlsOptions,
       },
       (r) => {
         r.resume();

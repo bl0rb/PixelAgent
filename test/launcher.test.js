@@ -6,6 +6,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import https from 'node:https';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -249,6 +250,89 @@ test('POST /__uce/target accepts a schemeless URL, sets target+out, and subseque
   assert.equal(decodeURIComponent(tagMatch[1]), `${targetOrigin}/foo`);
 });
 
+test('POST /__uce/target with forwardHosts replaces the forward list (URLs reduced to hostnames) and passes it to the net shim', async () => {
+  const res = await request(proxyPort, {
+    path: '/__uce/target',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: targetOrigin, outDir, forwardHosts: 'https://API.example.com/api/v1/me, auth.example.com' }),
+  });
+  assert.equal(res.statusCode, 200);
+  const state = JSON.parse((await request(proxyPort, { path: '/__uce/state' })).body.toString('utf-8'));
+  assert.deepEqual(state.forwardHosts, ['api.example.com', 'auth.example.com']);
+
+  const html = (await request(proxyPort, { path: '/' })).body.toString('utf-8');
+  assert.match(html, /net-shim\.js\?target=[^"]*&fwd=api\.example\.com%2Cauth\.example\.com"/);
+
+  // omitting forwardHosts keeps the current list
+  await request(proxyPort, {
+    path: '/__uce/target',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: targetOrigin, outDir }),
+  });
+  const kept = JSON.parse((await request(proxyPort, { path: '/__uce/state' })).body.toString('utf-8'));
+  assert.deepEqual(kept.forwardHosts, ['api.example.com', 'auth.example.com']);
+});
+
+test('POST /__uce/target rejects an invalid caCerts value with 400', async () => {
+  const res = await request(proxyPort, {
+    path: '/__uce/target',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: targetOrigin, outDir, caCerts: 'not a certificate' }),
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test('POST /__uce/target with caCerts makes fwd trust an https backend signed by that certificate', async (t) => {
+  const certFile = path.join(tmpDir, 'cert.pem');
+  const keyFile = path.join(tmpDir, 'key.pem');
+  try {
+    await new Promise((resolve, reject) => {
+      execFile(
+        'openssl',
+        ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyFile, '-out', certFile, '-days', '1',
+          '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'],
+        (err) => (err ? reject(err) : resolve(undefined)),
+      );
+    });
+  } catch {
+    t.skip('openssl not available');
+    return;
+  }
+  const cert = await fsp.readFile(certFile, 'utf-8');
+  const httpsServer = https.createServer({ cert, key: await fsp.readFile(keyFile) }, (req, res) => res.end('secure-ok'));
+  await new Promise((resolve) => httpsServer.listen(0, () => resolve(undefined)));
+  const httpsAddress = httpsServer.address();
+  const httpsPort = typeof httpsAddress === 'object' && httpsAddress ? httpsAddress.port : 0;
+  /** @param {string} caCerts */
+  const setTarget = (caCerts) =>
+    request(proxyPort, {
+      path: '/__uce/target',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: targetOrigin, outDir, caCerts }),
+    });
+  const fwdPath = `/__uce/fwd/https/localhost:${httpsPort}/`;
+
+  try {
+    assert.equal((await setTarget('')).statusCode, 200);
+    assert.equal((await request(proxyPort, { path: fwdPath })).statusCode, 502);
+
+    assert.equal((await setTarget(cert)).statusCode, 200);
+    const trusted = await request(proxyPort, { path: fwdPath });
+    assert.equal(trusted.statusCode, 200);
+    assert.equal(trusted.body.toString('utf-8'), 'secure-ok');
+
+    assert.equal((await setTarget('')).statusCode, 200);
+    assert.equal((await request(proxyPort, { path: fwdPath })).statusCode, 502);
+  } finally {
+    httpsServer.closeAllConnections();
+    await new Promise((resolve) => httpsServer.close(() => resolve(undefined)));
+  }
+});
+
 test('POST /__uce/quit responds ok and then invokes onQuit', async () => {
   const res = await request(proxyPort, { path: '/__uce/quit', method: 'POST' });
   assert.equal(res.statusCode, 200);
@@ -442,6 +526,41 @@ test('launcher page: shows the macOS download link only when downloadUrl is pres
   const downloadLink = /** @type {any} */ (dom.window.document.getElementById('uce-update-download'));
   assert.equal(downloadLink.hidden, false);
   assert.equal(downloadLink.href, info.downloadUrl);
+});
+
+test('launcher page: prefills the forward-hosts field and sends it and the stored CA certificate with the target', async () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false, forwardHosts: ['api.example.com'] });
+  /** @type {any[]} */
+  const posted = [];
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.localStorage.setItem('uce-ca-cert', JSON.stringify({ name: 'corp-ca.pem', pem: 'PEM-TEXT' }));
+      window.fetch = (/** @type {string} */ url, /** @type {any} */ init) => {
+        if (url === '/__uce/target') posted.push(JSON.parse(init.body));
+        return new Promise(() => {});
+      };
+    },
+  });
+  const { document } = dom.window;
+  const fwdInput = /** @type {any} */ (document.getElementById('uce-fwd'));
+  assert.equal(fwdInput.value, 'api.example.com');
+  fwdInput.value = 'api.example.com, auth.example.com';
+  /** @type {any} */ (document.getElementById('uce-url')).value = 'http://localhost:4200';
+  document.getElementById('uce-form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].forwardHosts, 'api.example.com, auth.example.com');
+  assert.equal(posted[0].caCerts, 'PEM-TEXT');
+  assert.equal(document.getElementById('uce-ca-name').textContent, 'corp-ca.pem');
+
+  // removing the certificate clears it for the next submit and in storage
+  document.getElementById('uce-ca-remove').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(dom.window.localStorage.getItem('uce-ca-cert'), null);
+  /** @type {any} */ (document.getElementById('uce-open')).disabled = false;
+  document.getElementById('uce-form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(posted[1].caCerts, '');
 });
 
 test('launcher page: shows nothing when there is no update', async () => {
