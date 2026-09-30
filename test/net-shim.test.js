@@ -289,3 +289,140 @@ test('is idempotent: evaluating the shim twice does not wrap fetch/open a second
   assert.equal(window.fetch, fetchAfterFirstLoad, 'fetch should not be wrapped again');
   assert.equal(window.XMLHttpRequest.prototype.open, openAfterFirstLoad, 'XHR.open should not be wrapped again');
 });
+
+// ---------------------------------------------------------------------------
+// Same-site default
+// ---------------------------------------------------------------------------
+
+const SITE_TARGET = 'https://paddledoc-dev.stg.eks.aws.hanse-merkur.de/';
+
+test('rewriteUrl: hosts under the target site (last two DNS labels) are forwarded without any fwd param', () => {
+  const window = loadShim({ targetUrl: SITE_TARGET });
+  assert.equal(
+    window.__nudgitRewriteUrl('https://paddledoc-api-dev.stg.eks.aws.hanse-merkur.de/api/v1/me?x=1'),
+    'http://localhost:4400/__uce/fwd/https/paddledoc-api-dev.stg.eks.aws.hanse-merkur.de/api/v1/me?x=1',
+  );
+  assert.equal(
+    window.__nudgitRewriteUrl('https://auth.HANSE-MERKUR.de/x'),
+    'http://localhost:4400/__uce/fwd/https/auth.hanse-merkur.de/x',
+  );
+  assert.equal(window.__nudgitRewriteUrl('https://hanse-merkur.de/x'), 'http://localhost:4400/__uce/fwd/https/hanse-merkur.de/x');
+  for (const url of ['https://evil-hanse-merkur.de/x', 'https://hanse-merkur.de.evil.com/x', 'https://example.com/x']) {
+    assert.equal(window.__nudgitRewriteUrl(url), url, `${url} is not same-site`);
+  }
+});
+
+test('rewriteUrl: no same-site default for loopback or IP targets', () => {
+  for (const targetUrl of ['http://localhost:3000/', 'http://192.0.2.10:3000/']) {
+    const window = loadShim({ targetUrl });
+    const url = 'https://api.example.com/x';
+    assert.equal(window.__nudgitRewriteUrl(url), url, targetUrl);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// nudgit:forward-blocked
+// ---------------------------------------------------------------------------
+
+/** @param {any} window @returns {string[]} hosts of the nudgit:forward-blocked events fired from now on */
+function collectBlocked(window) {
+  /** @type {string[]} */
+  const hosts = [];
+  window.addEventListener('nudgit:forward-blocked', (/** @type {any} */ e) => hosts.push(e.detail.host));
+  return hosts;
+}
+
+test('fetch: a rejected cross-origin request that is not rewritten fires a deduplicated nudgit:forward-blocked, and the app still sees its own rejection', async () => {
+  const failure = new Error('Failed to fetch');
+  failure.name = 'TypeError';
+  const window = loadShim({
+    seed: (w) => {
+      w.fetch = () => Promise.reject(failure);
+    },
+  });
+  const hosts = collectBlocked(window);
+
+  await assert.rejects(window.fetch('https://API.example.com/api/v1/me'), (err) => err === failure);
+  await assert.rejects(window.fetch(new window.URL('https://api.example.com/api/v1/other')), (err) => err === failure);
+  assert.deepEqual(hosts, ['api.example.com'], 'one event per host');
+  assert.deepEqual(Array.from(window.__nudgitBlockedHosts), ['api.example.com']);
+});
+
+test('fetch: no nudgit:forward-blocked for rewritten, same-origin, non-TypeError or no-cors requests, or for successes', async () => {
+  let mode = 'typeerror';
+  const window = loadShim({
+    seed: (w) => {
+      w.fetch = () => {
+        if (mode === 'ok') return Promise.resolve({ ok: true });
+        const err = new Error('x');
+        err.name = mode === 'abort' ? 'AbortError' : 'TypeError';
+        return Promise.reject(err);
+      };
+    },
+  });
+  const hosts = collectBlocked(window);
+
+  await assert.rejects(window.fetch('http://localhost:8000/api/x')); // rewritten through the proxy
+  await assert.rejects(window.fetch('/relative')); // same origin
+  await assert.rejects(window.fetch('https://no-cors.example.com/x', { mode: 'no-cors' }));
+  mode = 'abort';
+  await assert.rejects(window.fetch('https://aborted.example.com/x'));
+  mode = 'ok';
+  await window.fetch('https://fine.example.com/x');
+  assert.deepEqual(hosts, []);
+});
+
+test('XMLHttpRequest: an error event on an unrewritten cross-origin request fires nudgit:forward-blocked; a rewritten one does not', () => {
+  const window = loadShim({
+    seed: (w) => {
+      w.XMLHttpRequest.prototype.open = function () {};
+    },
+  });
+  const hosts = collectBlocked(window);
+
+  const rewritten = new window.XMLHttpRequest();
+  rewritten.open('GET', 'http://localhost:8000/api/x');
+  rewritten.dispatchEvent(new window.Event('error'));
+  assert.deepEqual(hosts, []);
+
+  const xhr = new window.XMLHttpRequest();
+  xhr.open('GET', 'https://api.example.com/api/x');
+  xhr.dispatchEvent(new window.Event('error'));
+  xhr.dispatchEvent(new window.Event('error'));
+  assert.deepEqual(hosts, ['api.example.com']);
+
+  // reusing the XHR for a rewritten URL must not report the old host again
+  xhr.open('GET', 'http://localhost:8000/api/y');
+  xhr.dispatchEvent(new window.Event('error'));
+  assert.deepEqual(hosts, ['api.example.com']);
+});
+
+test('EventSource: an error before open on an unrewritten cross-origin URL fires nudgit:forward-blocked; an error after open does not', () => {
+  /** @type {any[]} */
+  const created = [];
+  const window = loadShim({
+    seed: (w) => {
+      w.EventSource = class extends w.EventTarget {
+        /** @param {string} url */
+        constructor(url) {
+          super();
+          this.url = url;
+          created.push(this);
+        }
+      };
+    },
+  });
+  const hosts = collectBlocked(window);
+
+  const late = new window.EventSource('https://late.example.com/stream');
+  late.dispatchEvent(new window.Event('open'));
+  late.dispatchEvent(new window.Event('error'));
+  const rewritten = new window.EventSource('http://localhost:8000/stream');
+  rewritten.dispatchEvent(new window.Event('error'));
+  assert.deepEqual(hosts, []);
+
+  const blocked = new window.EventSource('https://api.example.com/stream');
+  blocked.dispatchEvent(new window.Event('error'));
+  assert.deepEqual(hosts, ['api.example.com']);
+  assert.equal(created[2].url, 'https://api.example.com/stream', 'the URL is passed through unchanged');
+});

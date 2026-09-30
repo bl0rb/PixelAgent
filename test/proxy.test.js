@@ -7,7 +7,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createProxy } from '../src/proxy/server.js';
+import { createProxy, siteOf } from '../src/proxy/server.js';
 import { injectScript, injectHeadScript } from '../src/proxy/inject.js';
 import { stripSecurityHeaders, rewriteLocation, rewriteSetCookie, rewriteFwdLocation } from '../src/proxy/headers.js';
 
@@ -161,10 +161,29 @@ test('rewriteFwdLocation leaves relative and foreign URLs untouched', () => {
 
 const DEMO_HTML = '<!doctype html><html><head><title>T</title></head><body><p>Hallo</p></body></html>';
 
+/** Headers of the most recent `GET /cached` the target saw (to check what the proxy forwarded). */
+let lastCachedRequestHeaders = /** @type {import('http').IncomingHttpHeaders} */ ({});
+
 /** @returns {Promise<import('http').Server>} */
 function startTargetServer() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      if (req.url === '/cached') {
+        lastCachedRequestHeaders = req.headers;
+        if (req.headers['if-none-match'] || req.headers['if-modified-since']) {
+          res.writeHead(304, { etag: '"v1"', 'cache-control': 'max-age=3600' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          etag: '"v1"',
+          'last-modified': 'Wed, 01 Jan 2025 00:00:00 GMT',
+          'cache-control': 'max-age=3600',
+        });
+        res.end(DEMO_HTML);
+        return;
+      }
       if (req.method === 'POST' && req.url === '/echo') {
         const chunks = [];
         req.on('data', (c) => chunks.push(c));
@@ -456,6 +475,29 @@ test('injects the net-shim script right after the opening <head> tag, exactly on
   assert.equal(new URL(decodeURIComponent(netShimTargetParam)).origin, targetOrigin);
 });
 
+test('document requests: conditional headers are not forwarded, and the injected HTML is not cacheable (no ETag/Last-Modified, no-store)', async () => {
+  const conditional = { 'if-none-match': '"v1"', 'if-modified-since': 'Wed, 01 Jan 2025 00:00:00 GMT' };
+  for (const nav of [{ 'sec-fetch-dest': 'document' }, { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' }]) {
+    const res = await request(proxyPort, { path: '/cached', headers: { ...conditional, ...nav } });
+    assert.equal(res.statusCode, 200, 'a revalidation must not end in a 304 that keeps stale injected HTML');
+    assert.equal(lastCachedRequestHeaders['if-none-match'], undefined);
+    assert.equal(lastCachedRequestHeaders['if-modified-since'], undefined);
+    assert.match(res.body.toString('utf-8'), /net-shim\.js/);
+    assert.equal(res.headers.etag, undefined);
+    assert.equal(res.headers['last-modified'], undefined);
+    assert.equal(res.headers['cache-control'], 'no-store');
+  }
+});
+
+test('non-document requests keep their conditional headers (and the target answers 304)', async () => {
+  const res = await request(proxyPort, {
+    path: '/cached',
+    headers: { 'if-none-match': '"v1"', accept: '*/*', 'sec-fetch-dest': 'empty' },
+  });
+  assert.equal(res.statusCode, 304);
+  assert.equal(lastCachedRequestHeaders['if-none-match'], '"v1"');
+});
+
 test('rewrites an absolute redirect Location header to the proxy origin', async () => {
   const res = await request(proxyPort, { path: '/redirect' });
   assert.equal(res.statusCode, 302);
@@ -732,6 +774,101 @@ test('fwd forwards to a host listed in forwardHosts and passes the list to the n
   assert.match(page.body.toString('utf-8'), /net-shim\.js\?target=[^"]*&fwd=api\.invalid"/);
 
   await new Promise((resolve) => fwdProxy.close(resolve));
+});
+
+test('siteOf: last two DNS labels; null for loopback, IPs and single labels', () => {
+  assert.equal(siteOf('paddledoc-dev.stg.eks.aws.hanse-merkur.de'), 'hanse-merkur.de');
+  assert.equal(siteOf('App.Example.com.'), 'example.com');
+  assert.equal(siteOf('example.com'), 'example.com');
+  assert.equal(siteOf('localhost'), null);
+  assert.equal(siteOf('app.localhost'), null);
+  assert.equal(siteOf('127.0.0.1'), null);
+  assert.equal(siteOf('192.168.1.20'), null);
+  assert.equal(siteOf('[::1]'), null);
+  assert.equal(siteOf('intranet'), null);
+  assert.equal(siteOf('foo.co.uk'), 'co.uk', 'known limitation: two-part public suffixes');
+});
+
+test('fwd allows hosts under the target site (last two DNS labels) by default, and only those', async () => {
+  const siteProxy = createProxy({
+    target: 'http://app-dev.stg.example.invalid:1',
+    out: path.join(tmpDir, 'site.md'),
+    overlayDir,
+    updateCheck: false,
+  });
+  await new Promise((resolve) => siteProxy.listen(0, resolve));
+  const address = siteProxy.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  const status = async (/** @type {string} */ host) => (await request(port, { path: `/__uce/fwd/http/${host}/x` })).statusCode;
+
+  // allowed: not refused with 403 (the .invalid hosts are unreachable, hence 502)
+  assert.equal(await status('api-dev.stg.example.invalid'), 502);
+  assert.equal(await status('auth.example.invalid'), 502);
+  assert.equal(await status('example.invalid'), 502);
+  assert.equal(await status('notexample.invalid'), 403);
+  assert.equal(await status('example.com'), 403);
+  assert.equal(await status('example.invalid.evil.com'), 403);
+
+  await new Promise((resolve) => siteProxy.close(resolve));
+
+  // an IP target has no site
+  const ipProxy = createProxy({ target: 'http://192.0.2.1:1', out: path.join(tmpDir, 'ip.md'), overlayDir, updateCheck: false });
+  await new Promise((resolve) => ipProxy.listen(0, resolve));
+  const ipAddress = ipProxy.address();
+  const ipPort = typeof ipAddress === 'object' && ipAddress ? ipAddress.port : 0;
+  assert.equal((await request(ipPort, { path: '/__uce/fwd/http/api.example.invalid/x' })).statusCode, 403);
+  await new Promise((resolve) => ipProxy.close(resolve));
+});
+
+test('POST /__uce/forward-host adds a hostname (or URL, reduced to its hostname) to the forward list and returns it', async () => {
+  const hostProxy = createProxy({
+    target: targetOrigin,
+    out: path.join(tmpDir, 'forward-host.md'),
+    overlayDir,
+    updateCheck: false,
+    forwardHosts: ['one.invalid'],
+  });
+  await new Promise((resolve) => hostProxy.listen(0, resolve));
+  const address = hostProxy.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  const origin = `http://localhost:${port}`;
+  const post = (/** @type {unknown} */ body, /** @type {Record<string, string>} */ headers = {}) =>
+    request(port, {
+      path: '/__uce/forward-host',
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin, ...headers },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+
+  assert.equal((await request(port, { path: '/__uce/fwd/http/two.invalid/x' })).statusCode, 403);
+
+  const added = await post({ host: 'Two.invalid' });
+  assert.equal(added.statusCode, 200);
+  assert.deepEqual(JSON.parse(added.body.toString('utf-8')), { ok: true, forwardHosts: ['one.invalid', 'two.invalid'] });
+  assert.equal((await request(port, { path: '/__uce/fwd/http/two.invalid/x' })).statusCode, 502);
+
+  const fromUrl = await post({ host: 'https://three.invalid:8443/api/v1/me?x=1' });
+  assert.deepEqual(JSON.parse(fromUrl.body.toString('utf-8')).forwardHosts, ['one.invalid', 'two.invalid', 'three.invalid']);
+
+  const again = await post({ host: 'two.invalid' });
+  assert.deepEqual(JSON.parse(again.body.toString('utf-8')).forwardHosts, ['one.invalid', 'two.invalid', 'three.invalid']);
+
+  const state = JSON.parse((await request(port, { path: '/__uce/state' })).body.toString('utf-8'));
+  assert.deepEqual(state.forwardHosts, ['one.invalid', 'two.invalid', 'three.invalid']);
+  const page = await request(port, { path: '/' });
+  assert.match(page.body.toString('utf-8'), /&fwd=one\.invalid%2Ctwo\.invalid%2Cthree\.invalid"/);
+
+  assert.equal((await post({})).statusCode, 400);
+  assert.equal((await post({ host: 42 })).statusCode, 400);
+  assert.equal((await post('not json')).statusCode, 400);
+  assert.equal((await request(port, { path: '/__uce/forward-host' })).statusCode, 404);
+
+  // same cross-origin guard as the other control POSTs
+  assert.equal((await post({ host: 'evil.invalid' }, { origin: 'http://evil.example' })).statusCode, 403);
+  assert.equal((await post({ host: 'evil.invalid' }, { 'sec-fetch-site': 'cross-site' })).statusCode, 403);
+  assert.equal((await request(port, { path: '/__uce/fwd/http/evil.invalid/x' })).statusCode, 403);
+
+  await new Promise((resolve) => hostProxy.close(resolve));
 });
 
 test('fwd rejects a request whose Sec-Fetch-Site is cross-site with 403, even though it targets an allowed host', async () => {

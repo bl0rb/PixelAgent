@@ -26,6 +26,8 @@
   var proxyOrigin = location.origin;
   var targetOrigin = '';
   var targetHostname = '';
+  /** @type {string|null} last two DNS labels of the target host: hosts under it are forwarded automatically */
+  var targetSite = null;
   /** @type {string[]} extra hosts the proxy forwards to (`--forward-host`) */
   var extraHosts = [];
   try {
@@ -36,6 +38,7 @@
       var targetUrl = new URL(target);
       targetOrigin = targetUrl.origin;
       targetHostname = targetUrl.hostname;
+      targetSite = siteOf(targetHostname);
     }
     var fwd = params.get('fwd');
     if (fwd) extraHosts = fwd.toLowerCase().split(',');
@@ -57,6 +60,21 @@
   }
 
   /**
+   * Last two DNS labels of a hostname (`a.b.example.com` -> `example.com`); null
+   * for loopback hosts, IP addresses and single-label names. Mirrors `siteOf`
+   * in src/proxy/server.js (known limitation: two-part public suffixes such as
+   * `co.uk` yield the suffix itself).
+   * @param {string} hostname
+   * @returns {string|null}
+   */
+  function siteOf(hostname) {
+    var h = String(hostname).toLowerCase().replace(/\.$/, '');
+    if (!h || isLoopbackHost(h) || h.indexOf(':') !== -1 || h.charAt(0) === '[' || /^[0-9.]+$/.test(h)) return null;
+    var labels = h.split('.');
+    return labels.length < 2 ? null : labels.slice(-2).join('.');
+  }
+
+  /**
    * Rewrite a URL so a request the page makes to its own local backend goes
    * through the proxy instead of hitting the backend directly from the
    * browser. Never throws; unrecognized/foreign/relative-same-origin URLs are
@@ -73,10 +91,12 @@
       }
       var scheme = u.protocol.slice(0, -1);
       if (scheme !== 'http' && scheme !== 'https' && scheme !== 'ws' && scheme !== 'wss') return url;
+      var host = u.hostname.toLowerCase();
       var hostOk =
-        isLoopbackHost(u.hostname) ||
-        (!!targetHostname && u.hostname.toLowerCase() === targetHostname.toLowerCase()) ||
-        extraHosts.indexOf(u.hostname.toLowerCase()) !== -1;
+        isLoopbackHost(host) ||
+        (!!targetHostname && host === targetHostname.toLowerCase()) ||
+        (!!targetSite && (host === targetSite || host.slice(-targetSite.length - 1) === '.' + targetSite)) ||
+        extraHosts.indexOf(host) !== -1;
       if (!hostOk) return url;
       var hostSegment = u.hostname.indexOf(':') !== -1 ? '[' + u.hostname + ']' : u.hostname;
       if (u.port) hostSegment += ':' + u.port;
@@ -93,35 +113,94 @@
 
   window.__nudgitRewriteUrl = rewriteUrl;
 
+  // --- failure detection for cross-origin requests that are NOT rewritten ---
+  // Such a request reaches its host directly, so the browser may block it (CORS).
+  // When one fails, a deduplicated `nudgit:forward-blocked` event ({ host }) is
+  // dispatched on `window` (the overlay offers to forward that host); hosts are
+  // also collected in `window.__nudgitBlockedHosts` for listeners that attach later.
+  // The app's own promises/events are never altered.
+  /** @type {string[]} */
+  var blockedHosts = [];
+  window.__nudgitBlockedHosts = blockedHosts;
+
+  /**
+   * Hostname of a URL the shim leaves alone but that points to another origin.
+   * @param {string} url
+   * @returns {string|null}
+   */
+  function foreignHost(url) {
+    try {
+      var u = new URL(String(url), location.href);
+      if ((u.protocol === 'http:' || u.protocol === 'https:') && u.origin !== proxyOrigin) return u.hostname.toLowerCase();
+    } catch (err) {
+      // unparsable: nothing to report
+    }
+    return null;
+  }
+
+  /** @param {string|null} host */
+  function reportBlocked(host) {
+    if (!host || blockedHosts.indexOf(host) !== -1) return;
+    blockedHosts.push(host);
+    try {
+      window.dispatchEvent(new window.CustomEvent('nudgit:forward-blocked', { detail: { host: host } }));
+    } catch (err) {
+      // CustomEvent unavailable: the host is still listed in __nudgitBlockedHosts
+    }
+  }
+
+  /**
+   * Reports `host` when `promise` (a fetch) rejects with a TypeError, and returns
+   * a promise that settles exactly like `promise`.
+   * @param {Promise<any>} promise
+   * @param {string|null} host
+   * @returns {Promise<any>}
+   */
+  function watchFetch(promise, host) {
+    if (!host || !promise || typeof promise.then !== 'function') return promise;
+    return new Promise(function (resolve, reject) {
+      promise.then(resolve, function (err) {
+        if (err && err.name === 'TypeError') reportBlocked(host);
+        reject(err);
+      });
+    });
+  }
+
   // --- fetch -----------------------------------------------------------
   if (window.fetch) {
     var originalFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
+      /** @type {string|null} */
+      var watchHost = null;
+      var callInput = input;
       try {
-        if (typeof input === 'string') {
-          return originalFetch(rewriteUrl(input), init);
-        }
-        if (typeof URL !== 'undefined' && input instanceof URL) {
-          return originalFetch(rewriteUrl(input.href), init);
-        }
-        if (typeof Request !== 'undefined' && input instanceof Request) {
-          var newUrl = rewriteUrl(input.url);
-          if (newUrl === input.url) return originalFetch(input, init);
-          var noBody = input.method === 'GET' || input.method === 'HEAD';
-          var rebuilt = new Request(newUrl, {
-            method: input.method,
-            headers: input.headers,
-            body: noBody ? undefined : input.body,
-            credentials: input.credentials,
-            mode: input.mode,
-            signal: input.signal,
-          });
-          return originalFetch(rebuilt, init);
+        var isRequest = typeof Request !== 'undefined' && input instanceof Request;
+        var href = typeof input === 'string' ? input : typeof URL !== 'undefined' && input instanceof URL ? input.href : isRequest ? input.url : null;
+        if (href !== null) {
+          var newUrl = rewriteUrl(href);
+          if (newUrl === href) {
+            var noCors = (init && init.mode === 'no-cors') || (isRequest && input.mode === 'no-cors');
+            watchHost = noCors ? null : foreignHost(href);
+          } else if (!isRequest) {
+            callInput = newUrl;
+          } else {
+            var noBody = input.method === 'GET' || input.method === 'HEAD';
+            callInput = new Request(newUrl, {
+              method: input.method,
+              headers: input.headers,
+              body: noBody ? undefined : input.body,
+              credentials: input.credentials,
+              mode: input.mode,
+              signal: input.signal,
+            });
+          }
         }
       } catch (err) {
         // fall through to the original, unrewritten call below
+        callInput = input;
+        watchHost = null;
       }
-      return originalFetch(input, init);
+      return watchFetch(originalFetch(callInput, init), watchHost);
     };
   }
 
@@ -133,6 +212,14 @@
       var newUrl = url;
       try {
         newUrl = rewriteUrl(url);
+        // remember the host of an unrewritten cross-origin request; one 'error' listener per XHR
+        this.__nudgitHost = newUrl === url ? foreignHost(url) : null;
+        if (!this.__nudgitListening) {
+          this.__nudgitListening = true;
+          this.addEventListener('error', function () {
+            reportBlocked(this.__nudgitHost);
+          });
+        }
       } catch (err) {
         newUrl = url;
       }
@@ -146,12 +233,24 @@
     /** @param {string} url @param {EventSourceInit} [config] */
     var PatchedEventSource = function (url, config) {
       var newUrl = url;
+      var watchHost = null;
       try {
         newUrl = rewriteUrl(url);
+        if (newUrl === url) watchHost = foreignHost(url);
       } catch (err) {
         newUrl = url;
       }
-      return arguments.length > 1 ? new OriginalEventSource(newUrl, config) : new OriginalEventSource(newUrl);
+      var source = arguments.length > 1 ? new OriginalEventSource(newUrl, config) : new OriginalEventSource(newUrl);
+      if (watchHost) {
+        var opened = false;
+        source.addEventListener('open', function () {
+          opened = true;
+        });
+        source.addEventListener('error', function () {
+          if (!opened) reportBlocked(watchHost);
+        });
+      }
+      return source;
     };
     PatchedEventSource.prototype = OriginalEventSource.prototype;
     PatchedEventSource.CONNECTING = OriginalEventSource.CONNECTING;

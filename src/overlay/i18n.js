@@ -51,6 +51,11 @@ const MESSAGES = {
     'toast.placeHint': 'Click where to insert it (Esc to cancel)',
     'toast.noSimilarElements': 'No similar elements found',
 
+    'forward.notice': 'The app calls {host}, which the browser blocks (CORS). Forward it through nudgit?',
+    'forward.forward': 'Forward',
+    'forward.ignore': 'Ignore',
+    'forward.failed': 'Could not forward {name}',
+
     'quick.rename': 'Rename (Enter)',
     'quick.move': 'Move – drag or Alt+↑/↓',
     'quick.comment': 'Comment (C)',
@@ -137,6 +142,11 @@ const MESSAGES = {
     'toast.moveNextToNewElementImpossible': 'Verschieben neben ein neues Element ist nicht möglich',
     'toast.placeHint': 'Einfügeort anklicken (Esc zum Abbrechen)',
     'toast.noSimilarElements': 'Keine gleichartigen Elemente gefunden',
+
+    'forward.notice': 'Die App ruft {host} auf – der Browser blockiert das (CORS). Über nudgit weiterleiten?',
+    'forward.forward': 'Weiterleiten',
+    'forward.ignore': 'Ignorieren',
+    'forward.failed': '{name} konnte nicht weitergeleitet werden',
 
     'quick.rename': 'Umbenennen (Enter)',
     'quick.move': 'Verschieben – ziehen oder Alt+↑/↓',

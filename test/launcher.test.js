@@ -563,6 +563,41 @@ test('launcher page: prefills the forward-hosts field and sends it and the store
   assert.equal(posted[1].caCerts, '');
 });
 
+test('launcher page: hints which hosts are forwarded automatically (same site as the typed or current target), in both languages', () => {
+  const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
+  const dom = new JSDOM(html, {
+    url: 'http://localhost/__uce/',
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.localStorage.setItem('uce-lang', 'en');
+      window.fetch = () => new Promise(() => {});
+    },
+  });
+  const { document } = dom.window;
+  const hint = /** @type {any} */ (document.getElementById('uce-fwd-hint'));
+  const urlInput = /** @type {any} */ (document.getElementById('uce-url'));
+  /** @param {string} value */
+  const type = (value) => {
+    urlInput.value = value;
+    urlInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  };
+
+  assert.equal(hint.textContent, '');
+  type('https://paddledoc-dev.stg.eks.aws.hanse-merkur.de/');
+  assert.equal(hint.textContent, 'Hosts under hanse-merkur.de are forwarded automatically.');
+  type('app.example.com:8443/admin');
+  assert.equal(hint.textContent, 'Hosts under example.com are forwarded automatically.');
+  for (const value of ['localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.1.20', 'intranet', 'http://[not', '']) {
+    type(value);
+    assert.equal(hint.textContent, '', `no hint for ${value}`);
+  }
+
+  type('https://app.example.com');
+  document.getElementById('uce-lang-de').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(hint.textContent, 'Hosts unter example.com werden automatisch weitergeleitet.');
+});
+
 test('launcher page: shows nothing when there is no update', async () => {
   const html = launcherHtml({ target: null, out: outFile, canPickDir: false });
   const dom = new JSDOM(html, {

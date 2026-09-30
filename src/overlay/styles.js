@@ -29,7 +29,7 @@ export const overlayStyles = `
   color: #1a1a1a;
 }
 
-.uce-toolbar, .uce-panel, .uce-popover, .uce-toast, .uce-marker {
+.uce-toolbar, .uce-panel, .uce-popover, .uce-toast, .uce-marker, .uce-forward-notice {
   pointer-events: auto;
 }
 
@@ -398,6 +398,26 @@ export const overlayStyles = `
   color: #666;
 }
 .uce-import-popover .uce-popover-actions[hidden] { display: none; }
+
+/* Forward-host notice (proxy mode) */
+.uce-forward-notice {
+  position: fixed;
+  bottom: 72px;
+  left: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: min(440px, calc(100vw - 32px));
+  background: #fff8e1;
+  border: 1px solid #e0b84a;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.uce-forward-notice[hidden] { display: none; }
+.uce-forward-notice span { flex: 1 1 100%; }
 
 /* Toast */
 .uce-toast {

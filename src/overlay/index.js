@@ -4,6 +4,7 @@ import { createState, apply, serialize, deserialize } from './changes.js';
 import { buildDocument, toMarkdown, downloadMarkdown, postExport, copyText } from './export.js';
 import { overlayStyles } from './styles.js';
 import { createToolbar } from './toolbar.js';
+import { createForwardNotice } from './forward-notice.js';
 import { createSelection } from './select.js';
 import { createPanel } from './panel.js';
 import { sync as previewSync, withOriginalDom } from './preview.js';
@@ -222,6 +223,7 @@ function initOverlay() {
   layer.appendChild(panel.panelEl);
   layer.appendChild(toolbarApi.el);
   layer.appendChild(toolbarApi.toastEl);
+  if (proxyMode) layer.appendChild(createForwardNotice(ctx).el);
 
   // Hover/selection boxes and markers must follow their target across
   // scroll, resize and DOM mutations (re-renders can move elements).

@@ -64,7 +64,7 @@ const FWD_PATH_RE = /^\/__uce\/fwd\/(https?|wss?)\/([^/]+)(\/.*)?$/;
  *   from GET /__uce/update. Omitted or `false` disables the check entirely
  *   (`/__uce/update` then always answers `{ update: null, checked: false }`).
  *   `forwardHosts` lists extra hostnames (e.g. a remote dev API) the fwd route
- *   may forward to, in addition to loopback hosts and the target's hostname;
+ *   may forward to, in addition to loopback hosts, the target's hostname and its site;
  *   the launcher can replace the list at runtime via POST /__uce/target.
  * @returns {import('http').Server}
  */
@@ -188,6 +188,11 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       if (req.method !== 'POST') return notFound(req, res);
       if (isCrossOriginPost(req, proxyOrigin)) return forbidden(req, res);
       return handleSetTarget(req, res);
+    }
+    if (parsedUrl.pathname === '/__uce/forward-host') {
+      if (req.method !== 'POST') return notFound(req, res);
+      if (isCrossOriginPost(req, proxyOrigin)) return forbidden(req, res);
+      return handleForwardHost(req, res);
     }
     if (parsedUrl.pathname === '/__uce/quit') {
       if (req.method !== 'POST') return notFound(req, res);
@@ -329,6 +334,22 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
   }
 
   /**
+   * Adds hosts to the forward list (the overlay's "Forward" button). Accepts a
+   * hostname or URL (reduced to its hostname) and answers with the full list.
+   * @param {import('http').IncomingMessage} req
+   * @param {import('http').ServerResponse} res
+   */
+  function handleForwardHost(req, res) {
+    const t = messages(pickLang(req.headers['accept-language']));
+    readJsonBody(req, (err, data) => {
+      const hosts = err ? [] : parseForwardHosts(data?.host);
+      if (!hosts.length) return sendJson(res, 400, { error: t.invalidRequest });
+      extraFwdHosts = [...extraFwdHosts, ...hosts.filter((h) => !extraFwdHosts.includes(h))];
+      sendJson(res, 200, { ok: true, forwardHosts: extraFwdHosts });
+    });
+  }
+
+  /**
    * Answers with the pending update-check result, waiting at most
    * UPDATE_CHECK_TIMEOUT_MS for it to settle (never rejects/throws).
    * @param {import('http').ServerResponse} res
@@ -402,6 +423,12 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
     const headers = { ...req.headers };
     headers.host = targetUrl.host;
     rewriteOriginReferer(headers, proxyOrigin, targetUrl.origin);
+    if (isDocumentRequest(req.headers)) {
+      // Never let the browser revalidate a cached page: a 304 would keep the old
+      // injected net-shim tag (with its stale forward-host list, see below).
+      delete headers['if-none-match'];
+      delete headers['if-modified-since'];
+    }
 
     const requestModule = targetIsHttps ? https : http;
     const proxyReq = requestModule.request(
@@ -469,6 +496,10 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       const body = Buffer.from(htmlStr, 'utf-8');
       delete headers['content-encoding'];
       delete headers['transfer-encoding'];
+      // The injected shim tag embeds the current forward-host list, so the page must not be cached or revalidated.
+      delete headers.etag;
+      delete headers['last-modified'];
+      headers['cache-control'] = 'no-store';
       headers['content-length'] = String(Buffer.byteLength(body));
       res.writeHead(/** @type {number} */ (proxyRes.statusCode), headers);
       res.end(body);
@@ -538,7 +569,8 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
   /**
    * Validate and resolve a `/__uce/fwd/<scheme>/<host:port>/<path>` pathname
    * against the current target. Only loopback hosts (localhost, *.localhost,
-   * 127.0.0.0/8, ::1), a host matching the current target's hostname or one of
+   * 127.0.0.0/8, ::1), a host matching the current target's hostname, a host
+   * under the target's site (last two DNS labels, see `siteOf`) or one of
    * `forwardHosts` are allowed, so the proxy can't be used as an open relay to
    * arbitrary hosts.
    *
@@ -782,7 +814,36 @@ function parseCaCerts(pem) {
  * @returns {boolean}
  */
 function isAllowedFwdHost(hostname, targetHostname) {
-  return isLoopbackHost(hostname) || hostname.toLowerCase() === targetHostname.toLowerCase();
+  const h = hostname.toLowerCase();
+  const site = siteOf(targetHostname);
+  return isLoopbackHost(h) || h === targetHostname.toLowerCase() || (!!site && (h === site || h.endsWith(`.${site}`)));
+}
+
+/**
+ * The "site" of a hostname for the automatic same-site forwarding: its last two
+ * DNS labels (`paddledoc-dev.stg.eks.aws.hanse-merkur.de` -> `hanse-merkur.de`).
+ * `null` for loopback hosts, IP addresses and single-label names. Known
+ * limitation: for two-part public suffixes (`co.uk`, `com.au`, ...) this yields
+ * the suffix itself, so every host under it would count as same-site.
+ *
+ * @param {string} hostname
+ * @returns {string|null}
+ */
+export function siteOf(hostname) {
+  const h = hostname.toLowerCase().replace(/\.$/, '');
+  if (!h || isLoopbackHost(h) || h.includes(':') || h.startsWith('[') || /^[0-9.]+$/.test(h)) return null;
+  const labels = h.split('.');
+  return labels.length < 2 ? null : labels.slice(-2).join('.');
+}
+
+/**
+ * Whether a request is a page (document) navigation: `Sec-Fetch-Dest: document`
+ * or an `Accept` header asking for HTML.
+ * @param {import('http').IncomingHttpHeaders} headers
+ * @returns {boolean}
+ */
+function isDocumentRequest(headers) {
+  return headers['sec-fetch-dest'] === 'document' || String(headers.accept || '').toLowerCase().includes('text/html');
 }
 
 /**
