@@ -26,6 +26,8 @@
   var proxyOrigin = location.origin;
   var targetOrigin = '';
   var targetHostname = '';
+  /** @type {string[]} extra hosts the proxy forwards to (`--forward-host`) */
+  var extraHosts = [];
   try {
     var scriptSrc = document.currentScript && /** @type {HTMLScriptElement} */ (document.currentScript).src;
     var params = new URL(String(scriptSrc), location.href).searchParams;
@@ -35,6 +37,8 @@
       targetOrigin = targetUrl.origin;
       targetHostname = targetUrl.hostname;
     }
+    var fwd = params.get('fwd');
+    if (fwd) extraHosts = fwd.toLowerCase().split(',');
   } catch (err) {
     // Target undetectable; rewriteUrl below only ever returns the input unchanged.
   }
@@ -69,7 +73,10 @@
       }
       var scheme = u.protocol.slice(0, -1);
       if (scheme !== 'http' && scheme !== 'https' && scheme !== 'ws' && scheme !== 'wss') return url;
-      var hostOk = isLoopbackHost(u.hostname) || (!!targetHostname && u.hostname.toLowerCase() === targetHostname.toLowerCase());
+      var hostOk =
+        isLoopbackHost(u.hostname) ||
+        (!!targetHostname && u.hostname.toLowerCase() === targetHostname.toLowerCase()) ||
+        extraHosts.indexOf(u.hostname.toLowerCase()) !== -1;
       if (!hostOk) return url;
       var hostSegment = u.hostname.indexOf(':') !== -1 ? '[' + u.hostname + ']' : u.hostname;
       if (u.port) hostSegment += ':' + u.port;

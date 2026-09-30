@@ -43,7 +43,7 @@ const FWD_PATH_RE = /^\/__uce\/fwd\/(https?|wss?)\/([^/]+)(\/.*)?$/;
 /**
  * Create the nudgit proxy server. The caller is responsible for calling `.listen(...)`.
  *
- * @param {{ target?: string, out?: string, overlayDir?: string, onQuit?: () => void,
+ * @param {{ target?: string, out?: string, overlayDir?: string, onQuit?: () => void, forwardHosts?: string[],
  *   pickDirectory?: (opts: { title?: string, startDir?: string }) => Promise<{path: string}|{cancelled: true}>,
  *   updateCheck?: false | (() => Promise<{current: string, latest: string, url: string, downloadUrl?: string}|null>) }} [options]
  *   `target` is the full target URL (e.g. http://localhost:8787/admin). When
@@ -61,13 +61,16 @@ const FWD_PATH_RE = /^\/__uce\/fwd\/(https?|wss?)\/([^/]+)(\/.*)?$/;
  *   is not awaited, so startup never blocks on it) and its result is served
  *   from GET /__uce/update. Omitted or `false` disables the check entirely
  *   (`/__uce/update` then always answers `{ update: null, checked: false }`).
+ *   `forwardHosts` lists extra hostnames (e.g. a remote dev API) the fwd route
+ *   may forward to, in addition to loopback hosts and the target's hostname.
  * @returns {import('http').Server}
  */
-export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, updateCheck } = {}) {
+export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, updateCheck, forwardHosts = [] } = {}) {
   /** @type {URL|null} */
   let currentTargetUrl = target ? new URL(target) : null;
   let currentOut = path.resolve(out || path.join(process.cwd(), 'ui-changes.md'));
   const resolvedOverlayDir = path.resolve(overlayDir || DEFAULT_OVERLAY_DIR);
+  const extraFwdHosts = forwardHosts.map((h) => h.trim().toLowerCase()).filter(Boolean);
   const pickDirFn = pickDirectory || defaultPickDirectory;
   const canPickDir = pickDirectory ? true : isPickDirSupported();
   let pickDirBusy = false;
@@ -442,7 +445,8 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
         res.end(raw);
         return;
       }
-      const netShimTag = `<script src="/__uce/net-shim.js?target=${encodeURIComponent(targetUrl.href)}"></script>`;
+      const fwdParam = extraFwdHosts.length ? `&fwd=${encodeURIComponent(extraFwdHosts.join(','))}` : '';
+      const netShimTag = `<script src="/__uce/net-shim.js?target=${encodeURIComponent(targetUrl.href)}${fwdParam}"></script>`;
       const overlayTag = `<script type="module" src="/__uce/overlay.js?target=${encodeURIComponent(targetUrl.href)}"></script>`;
       let htmlStr = injectHeadScript(html.toString('utf-8'), netShimTag);
       htmlStr = injectScript(htmlStr, overlayTag);
@@ -517,8 +521,9 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
   /**
    * Validate and resolve a `/__uce/fwd/<scheme>/<host:port>/<path>` pathname
    * against the current target. Only loopback hosts (localhost, *.localhost,
-   * 127.0.0.0/8, ::1) or a host matching the current target's hostname are
-   * allowed, so the proxy can't be used as an open relay to arbitrary hosts.
+   * 127.0.0.0/8, ::1), a host matching the current target's hostname or one of
+   * `forwardHosts` are allowed, so the proxy can't be used as an open relay to
+   * arbitrary hosts.
    *
    * @param {string} pathname
    * @returns {{ ok: true, scheme: 'http'|'https'|'ws'|'wss', host: string, hostname: string, port: number,
@@ -539,7 +544,9 @@ export function createProxy({ target, out, overlayDir, onQuit, pickDirectory, up
       return { ok: false };
     }
     const hostname = hostUrl.hostname;
-    if (!isAllowedFwdHost(hostname, currentTargetUrl.hostname)) return { ok: false };
+    if (!isAllowedFwdHost(hostname, currentTargetUrl.hostname) && !extraFwdHosts.includes(hostname.toLowerCase())) {
+      return { ok: false };
+    }
     const isHttpsUpstream = scheme === 'https' || scheme === 'wss';
     const port = hostUrl.port ? Number(hostUrl.port) : isHttpsUpstream ? 443 : 80;
     return {

@@ -7,7 +7,7 @@ const MESSAGES = {
   en: {
     gatewayError: '502 Bad Gateway: target server unreachable.',
     crossOriginError: '403 Forbidden: request origin not allowed.',
-    fwdHostNotAllowed: (/** @type {string} */ host) => `403 Forbidden: forwarding to ${host} is not allowed.`,
+    fwdHostNotAllowed: (/** @type {string} */ host) => `403 Forbidden: forwarding to ${host} is not allowed (allow it with: nudgit --forward-host <host>).`,
     exportTooLarge: 'Export too large (limit 5 MB).',
     writeFailed: 'Could not write file.',
     invalidRequest: 'Invalid request.',
@@ -26,7 +26,7 @@ const MESSAGES = {
   de: {
     gatewayError: '502 Bad Gateway: Ziel-Server nicht erreichbar.',
     crossOriginError: '403 Verboten: Anfrage-Herkunft nicht erlaubt.',
-    fwdHostNotAllowed: (/** @type {string} */ host) => `403 Verboten: Weiterleitung an ${host} ist nicht erlaubt.`,
+    fwdHostNotAllowed: (/** @type {string} */ host) => `403 Verboten: Weiterleitung an ${host} ist nicht erlaubt (erlauben mit: nudgit --forward-host <host>).`,
     exportTooLarge: 'Export zu groß (Limit 5 MB).',
     writeFailed: 'Konnte Datei nicht schreiben.',
     invalidRequest: 'Ungültige Anfrage.',

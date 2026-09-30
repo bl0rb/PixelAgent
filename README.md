@@ -50,13 +50,14 @@ npm link   # optional: makes the `nudgit` command available globally
 ```
 
 ```bash
-nudgit [target-url] [--port 4400] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]
+nudgit [target-url] [--port 4400] [--out ui-changes.md] [--forward-host api.example.com] [--open] [--no-open] [--no-update-check]
 ```
 
 - `[target-url]`: full URL of the target app, e.g. `http://localhost:8787/admin`. If omitted, nudgit starts in launcher mode (see below)
 - `--port 4400`: proxy port (default: 4400)
 - `--host 127.0.0.1`: address to listen on. By default nudgit only listens on the loopback addresses (127.0.0.1 and ::1), so only this machine can reach it; use e.g. `--host 0.0.0.0` (or `NUDGIT_HOST`) only when others should reach it
 - `--out ui-changes.md`: path for the change list, relative to the current working directory (default: `./ui-changes.md`)
+- `--forward-host api.example.com`: also route the app's API calls to this (non-local) host through the proxy, e.g. a remote dev API that only allows the app's own origin via CORS (see [Local backends](#how-the-proxy-works)). Repeatable or comma-separated; also `NUDGIT_FORWARD_HOSTS`
 - `--open`: open the browser (already the default in launcher mode)
 - `--no-open`: don't open the browser automatically
 - `--no-update-check`: don't check for a newer release on startup (see [Update check](#update-check))
@@ -231,8 +232,13 @@ it (selector, HTML snippet, breadcrumb).
    (what the backend's CORS/CSRF checks expect), streams the response
    (SSE/chat streaming works), and rewrites `Location`/`Set-Cookie` back to
    the fwd path. Only loopback hosts (`localhost`, `*.localhost`,
-   `127.0.0.0/8`, `::1`) or a host matching the target's own hostname are
-   forwarded; anything else gets a 403.
+   `127.0.0.0/8`, `::1`), a host matching the target's own hostname or a host
+   passed with `--forward-host` are forwarded; anything else gets a 403.
+   Example: an app on `http://localhost:4200` calling
+   `https://api-dev.example.com` fails with "blocked by CORS policy" behind
+   nudgit; `nudgit http://localhost:4200 --forward-host api-dev.example.com`
+   fixes it (the API then sees `Origin: http://localhost:4200`, as without
+   nudgit).
 
 ### Security note
 
