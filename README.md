@@ -81,7 +81,11 @@ The browser opens automatically at `http://localhost:4400/__uce/`: a start
 page with a field for the target URL (also works without `http://`, e.g.
 `localhost:3000`), a field for the `ui-changes.md` save location with a "Choose…" button that
 opens the native folder dialog (macOS, Windows, Linux with zenity/kdialog),
-recently used URLs (each remembers its save location), and the "Open" / "Quit" buttons. "Open" sets the target and
+optional "Forward API hosts" (same as `--forward-host`, against CORS errors from
+a remote dev API) and "CA certificate" fields (a PEM or DER file, e.g. your
+company's root CA, so nudgit trusts internal HTTPS servers; stored in the
+browser and sent along with "Open"),
+recently used URLs (each remembers its save location and forwarded hosts), and the "Open" / "Quit" buttons. "Open" sets the target and
 redirects straight into the running app including the overlay — no CLI call
 needed. In the overlay toolbar, the "Change URL" button always jumps back to
 the start page. "Quit" stops the server.

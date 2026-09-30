@@ -47,6 +47,11 @@ const STYLE = `
     border: 1px solid rgba(127,127,127,0.4); padding: 10px 12px;
   }
   .uce-choose:disabled { opacity: 0.6; cursor: default; }
+  .uce-ca-name {
+    flex: 1; min-width: 0; padding: 10px 12px; font-size: 14px; border-radius: 8px;
+    border: 1px solid rgba(127,127,127,0.4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .uce-ca-name[data-empty="1"] { opacity: 0.6; }
   .uce-pickdir-hint { min-height: 14px; margin-top: 6px; font-size: 12px; opacity: 0.75; }
   .uce-primary { width: 100%; margin-top: 22px; background: #2563eb; color: #fff; }
   .uce-primary:disabled { opacity: 0.6; cursor: default; }
@@ -106,6 +111,10 @@ const SCRIPT = `
       title: 'nudgit',
       urlLabel: 'Target URL',
       outLabel: 'Save location for ui-changes.md',
+      fwdLabel: 'Forward API hosts (optional, against CORS errors)',
+      caLabel: 'CA certificate (optional, for internal HTTPS servers)',
+      caNone: 'No certificate',
+      caReadError: 'Could not read the certificate file.',
       openBtn: 'Open',
       quitBtn: 'Quit',
       quitConfirm: 'Really quit nudgit?',
@@ -131,6 +140,10 @@ const SCRIPT = `
       title: 'nudgit',
       urlLabel: 'Ziel-URL',
       outLabel: 'Speicherort für ui-changes.md',
+      fwdLabel: 'API-Hosts weiterleiten (optional, gegen CORS-Fehler)',
+      caLabel: 'CA-Zertifikat (optional, für interne HTTPS-Server)',
+      caNone: 'Kein Zertifikat',
+      caReadError: 'Zertifikatsdatei konnte nicht gelesen werden.',
       openBtn: 'Öffnen',
       quitBtn: 'Beenden',
       quitConfirm: 'nudgit wirklich beenden?',
@@ -159,6 +172,13 @@ const SCRIPT = `
   var form = document.getElementById('uce-form');
   var urlInput = document.getElementById('uce-url');
   var outDirInput = document.getElementById('uce-outdir');
+  var fwdInput = document.getElementById('uce-fwd');
+  var fwdLabelEl = document.getElementById('uce-fwd-label');
+  var caLabelEl = document.getElementById('uce-ca-label');
+  var caNameEl = document.getElementById('uce-ca-name');
+  var caFileInput = document.getElementById('uce-ca-file');
+  var caChooseBtn = document.getElementById('uce-ca-choose');
+  var caRemoveBtn = document.getElementById('uce-ca-remove');
   var chooseDirBtn = document.getElementById('uce-choose-dir');
   var pickDirHintEl = document.getElementById('uce-pickdir-hint');
   var errEl = document.getElementById('uce-error');
@@ -201,6 +221,11 @@ const SCRIPT = `
     titleEl.textContent = s.title;
     urlLabelEl.textContent = s.urlLabel;
     outLabelEl.textContent = s.outLabel;
+    fwdLabelEl.textContent = s.fwdLabel;
+    caLabelEl.textContent = s.caLabel;
+    caChooseBtn.textContent = s.chooseBtn;
+    caRemoveBtn.textContent = s.removeTitle;
+    renderCaCert();
     openBtn.textContent = s.openBtn;
     quitBtn.textContent = s.quitBtn;
     chooseDirBtn.textContent = s.chooseBtn;
@@ -292,10 +317,64 @@ const SCRIPT = `
   }
 
   outDirInput.value = initial.outDir || '';
+  fwdInput.value = (initial.forwardHosts || []).join(', ');
   stateOutEl.textContent = initial.out || '';
   if (!initial.canPickDir) {
     chooseDirBtn.hidden = true;
   }
+
+  // Extra CA certificate (PEM) for internal HTTPS servers. Kept in
+  // localStorage and sent with every POST /__uce/target (the proxy only holds
+  // it in memory), so it survives restarts.
+  var CA_KEY = 'uce-ca-cert';
+  var caCert = null;
+  try {
+    var rawCa = JSON.parse(localStorage.getItem(CA_KEY) || 'null');
+    if (rawCa && typeof rawCa.pem === 'string') caCert = { name: String(rawCa.name || ''), pem: rawCa.pem };
+  } catch (e) {}
+
+  function setCaCert(next) {
+    caCert = next;
+    try {
+      if (next) localStorage.setItem(CA_KEY, JSON.stringify(next));
+      else localStorage.removeItem(CA_KEY);
+    } catch (e) {
+      // localStorage unavailable; the certificate is only used for this page
+    }
+    renderCaCert();
+  }
+
+  function renderCaCert() {
+    var s = STRINGS[lang] || STRINGS.en;
+    caNameEl.textContent = caCert ? caCert.name || 'CA' : s.caNone;
+    caNameEl.setAttribute('data-empty', caCert ? '0' : '1');
+    caRemoveBtn.hidden = !caCert;
+  }
+
+  // Accepts PEM text as is and wraps binary DER (.cer/.der) as PEM.
+  function toPem(bytes) {
+    var text = new TextDecoder().decode(bytes);
+    if (text.indexOf('-----BEGIN CERTIFICATE-----') !== -1) return text;
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return '-----BEGIN CERTIFICATE-----\\n' + btoa(bin).replace(/(.{64})/g, '$1\\n') + '\\n-----END CERTIFICATE-----\\n';
+  }
+
+  caChooseBtn.addEventListener('click', function () { caFileInput.click(); });
+  caRemoveBtn.addEventListener('click', function () { setCaCert(null); });
+  caFileInput.addEventListener('change', function () {
+    var file = caFileInput.files && caFileInput.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      setCaCert({ name: file.name, pem: toPem(new Uint8Array(reader.result)) });
+      caFileInput.value = '';
+    };
+    reader.onerror = function () {
+      errEl.textContent = (STRINGS[lang] || STRINGS.en).caReadError;
+    };
+    reader.readAsArrayBuffer(file);
+  });
 
   var RECENT_KEY = 'uce-recent-urls';
 
@@ -306,11 +385,15 @@ const SCRIPT = `
       if (!Array.isArray(list)) return [];
       var result = [];
       list.forEach(function (item) {
-        // Migrate legacy entries (plain URL strings) to { url, outDir }.
+        // Migrate legacy entries (plain URL strings) to { url, outDir, fwd }.
         if (typeof item === 'string' && item) {
-          result.push({ url: item, outDir: '' });
+          result.push({ url: item, outDir: '', fwd: '' });
         } else if (item && typeof item.url === 'string' && item.url) {
-          result.push({ url: item.url, outDir: typeof item.outDir === 'string' ? item.outDir : '' });
+          result.push({
+            url: item.url,
+            outDir: typeof item.outDir === 'string' ? item.outDir : '',
+            fwd: typeof item.fwd === 'string' ? item.fwd : '',
+          });
         }
       });
       return result;
@@ -327,9 +410,9 @@ const SCRIPT = `
     }
   }
 
-  function addRecent(url, outDir) {
+  function addRecent(url, outDir, fwd) {
     var list = loadRecent().filter(function (entry) { return entry.url !== url; });
-    list.unshift({ url: url, outDir: outDir || '' });
+    list.unshift({ url: url, outDir: outDir || '', fwd: fwd || '' });
     saveRecent(list);
     renderRecent();
   }
@@ -347,6 +430,7 @@ const SCRIPT = `
         e.preventDefault();
         urlInput.value = entry.url;
         if (entry.outDir) outDirInput.value = entry.outDir;
+        if (entry.fwd) fwdInput.value = entry.fwd;
         submitForm();
       });
       var rm = document.createElement('button');
@@ -374,10 +458,11 @@ const SCRIPT = `
     }
     openBtn.disabled = true;
     var outDir = outDirInput.value.trim();
+    var fwd = fwdInput.value.trim();
     fetch('/__uce/target', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url, outDir: outDir }),
+      body: JSON.stringify({ url: url, outDir: outDir, forwardHosts: fwd, caCerts: caCert ? caCert.pem : '' }),
     })
       .then(function (res) {
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });
@@ -388,7 +473,7 @@ const SCRIPT = `
           openBtn.disabled = false;
           return;
         }
-        addRecent(url, outDir);
+        addRecent(url, outDir, fwd);
         location.href = result.data.path || '/';
       })
       .catch(function () {
@@ -461,7 +546,7 @@ const SCRIPT = `
 `;
 
 /**
- * @param {{ target: string|null, out: string, canPickDir?: boolean }} state
+ * @param {{ target: string|null, out: string, canPickDir?: boolean, forwardHosts?: string[] }} state
  * @returns {string}
  */
 export function launcherHtml(state) {
@@ -470,6 +555,7 @@ export function launcherHtml(state) {
     out: state.out,
     outDir: path.dirname(state.out),
     canPickDir: !!state.canPickDir,
+    forwardHosts: state.forwardHosts || [],
   };
   const initialJson = JSON.stringify(initial).replace(/</g, '\\u003c');
 
@@ -507,6 +593,15 @@ export function launcherHtml(state) {
         <button type="button" class="uce-choose" id="uce-choose-dir">Choose…</button>
       </div>
       <div class="uce-pickdir-hint" id="uce-pickdir-hint"></div>
+      <label for="uce-fwd" id="uce-fwd-label">Forward API hosts (optional, against CORS errors)</label>
+      <input type="text" id="uce-fwd" name="forwardHosts" autocomplete="off" placeholder="api-dev.example.com, auth.example.com">
+      <label for="uce-ca-choose" id="uce-ca-label">CA certificate (optional, for internal HTTPS servers)</label>
+      <div class="uce-row">
+        <span class="uce-ca-name" id="uce-ca-name" data-empty="1">No certificate</span>
+        <button type="button" class="uce-choose" id="uce-ca-choose">Choose…</button>
+        <button type="button" class="uce-choose" id="uce-ca-remove" hidden>Remove</button>
+      </div>
+      <input type="file" id="uce-ca-file" accept=".pem,.crt,.cer,.der" hidden>
       <div class="uce-error" id="uce-error"></div>
       <button type="submit" class="uce-primary" id="uce-open">Open</button>
     </form>
