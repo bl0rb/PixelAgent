@@ -19,9 +19,9 @@ const SHIM_SRC = fs.readFileSync(path.join(__dirname, '../src/overlay/net-shim.j
  * right after `<head>`. `seed`, if given, runs before the shim loads so it can
  * pre-populate globals (fake fetch/Request/...) for the shim to wrap.
  *
- * @param {{ proxyUrl?: string, targetUrl?: string|null, seed?: (window: any) => void }} [opts]
+ * @param {{ proxyUrl?: string, targetUrl?: string|null, fwd?: string, seed?: (window: any) => void }} [opts]
  */
-function loadShim({ proxyUrl = 'http://localhost:4400/', targetUrl = 'http://localhost:3000/', seed } = {}) {
+function loadShim({ proxyUrl = 'http://localhost:4400/', targetUrl = 'http://localhost:3000/', fwd = '', seed } = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
     url: proxyUrl,
     runScripts: 'dangerously',
@@ -29,7 +29,7 @@ function loadShim({ proxyUrl = 'http://localhost:4400/', targetUrl = 'http://loc
   const { window } = dom;
   if (seed) seed(window);
   const scriptSrc = targetUrl
-    ? `${proxyUrl}__uce/net-shim.js?target=${encodeURIComponent(targetUrl)}`
+    ? `${proxyUrl}__uce/net-shim.js?target=${encodeURIComponent(targetUrl)}${fwd ? `&fwd=${encodeURIComponent(fwd)}` : ''}`
     : `${proxyUrl}__uce/net-shim.js`;
   Object.defineProperty(window.document, 'currentScript', { value: { src: scriptSrc }, configurable: true });
   window.eval(SHIM_SRC);
@@ -95,6 +95,15 @@ test('rewriteUrl: an external (non-loopback, non-target) host is left unchanged'
   const window = loadShim();
   const url = 'https://example.com/api';
   assert.equal(window.__nudgitRewriteUrl(url), url);
+});
+
+test('rewriteUrl: an external host listed in the fwd param (--forward-host) is routed through /__uce/fwd/', () => {
+  const window = loadShim({ fwd: 'api.example.com,other.example.com' });
+  assert.equal(
+    window.__nudgitRewriteUrl('https://API.example.com/api/v1/me?x=1'),
+    'http://localhost:4400/__uce/fwd/https/api.example.com/api/v1/me?x=1',
+  );
+  assert.equal(window.__nudgitRewriteUrl('https://example.com/api'), 'https://example.com/api');
 });
 
 test('rewriteUrl: without a target param, the target-origin branch is inactive but loopback forwarding still works', () => {

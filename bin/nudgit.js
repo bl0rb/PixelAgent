@@ -23,11 +23,11 @@ const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'pack
 const CURRENT_VERSION = PACKAGE_JSON.version;
 
 const USAGE =
-  'Usage: nudgit [target-url] [--port 4400] [--host 127.0.0.1] [--out ui-changes.md] [--open] [--no-open] [--no-update-check]';
+  'Usage: nudgit [target-url] [--port 4400] [--host 127.0.0.1] [--out ui-changes.md] [--forward-host api.example.com] [--open] [--no-open] [--no-update-check]';
 
 /**
  * @param {string[]} argv
- * @returns {{ port: number, host: string | null, out: string, open: boolean, noOpen: boolean, noUpdateCheck: boolean, targetUrl?: string }}
+ * @returns {{ port: number, host: string | null, out: string, forwardHosts: string[], open: boolean, noOpen: boolean, noUpdateCheck: boolean, targetUrl?: string }}
  */
 function parseArgs(argv) {
   const result = {
@@ -35,6 +35,8 @@ function parseArgs(argv) {
     /** @type {string | null} null = loopback only (127.0.0.1 and ::1) */
     host: process.env.NUDGIT_HOST || null,
     out: 'ui-changes.md',
+    /** @type {string[]} extra hosts the proxy may forward API calls to */
+    forwardHosts: (process.env.NUDGIT_FORWARD_HOSTS || '').split(',').filter(Boolean),
     open: false,
     noOpen: false,
     noUpdateCheck: false,
@@ -49,6 +51,8 @@ function parseArgs(argv) {
       result.host = argv[++i] || null;
     } else if (arg === '--out') {
       result.out = argv[++i];
+    } else if (arg === '--forward-host') {
+      result.forwardHosts.push(...(argv[++i] || '').split(',').filter(Boolean));
     } else if (arg === '--open') {
       result.open = true;
     } else if (arg === '--no-open') {
@@ -131,7 +135,7 @@ async function handlePortInUse(port, allowOpen) {
 }
 
 function main() {
-  const { port, host, out, open, noOpen, noUpdateCheck, targetUrl } = parseArgs(process.argv.slice(2));
+  const { port, host, out, forwardHosts, open, noOpen, noUpdateCheck, targetUrl } = parseArgs(process.argv.slice(2));
 
   if (!Number.isInteger(port) || port <= 0) {
     console.error(`Invalid port: ${String(port)}`);
@@ -163,6 +167,7 @@ function main() {
   const server = createProxy({
     target: launcherMode ? undefined : targetUrl,
     out: resolvedOut,
+    forwardHosts,
     updateCheck: updateCheckDisabled ? false : () => checkForUpdate({ currentVersion: CURRENT_VERSION }),
     onQuit: () => {
       server.close(() => process.exit(0));

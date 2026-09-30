@@ -710,6 +710,30 @@ test('fwd rejects a non-loopback, non-target host with 403', async () => {
   assert.equal(res.statusCode, 403);
 });
 
+test('fwd forwards to a host listed in forwardHosts and passes the list to the net shim', async () => {
+  const fwdProxy = createProxy({
+    target: targetOrigin,
+    out: path.join(tmpDir, 'fwd-hosts.md'),
+    overlayDir,
+    updateCheck: false,
+    forwardHosts: ['API.invalid'],
+  });
+  await new Promise((resolve) => fwdProxy.listen(0, resolve));
+  const address = fwdProxy.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+
+  // allowed: not refused with 403 (the .invalid host is unreachable, hence 502)
+  const allowed = await request(port, { path: '/__uce/fwd/http/api.invalid/api' });
+  assert.equal(allowed.statusCode, 502);
+  const refused = await request(port, { path: '/__uce/fwd/http/example.com/api' });
+  assert.equal(refused.statusCode, 403);
+
+  const page = await request(port, { path: '/' });
+  assert.match(page.body.toString('utf-8'), /net-shim\.js\?target=[^"]*&fwd=api\.invalid"/);
+
+  await new Promise((resolve) => fwdProxy.close(resolve));
+});
+
 test('fwd rejects a request whose Sec-Fetch-Site is cross-site with 403, even though it targets an allowed host', async () => {
   const res = await request(proxyPort, {
     path: `/__uce/fwd/http/localhost:${backendPort}/api/echo-headers`,
