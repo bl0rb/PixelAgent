@@ -112,6 +112,7 @@ const SCRIPT = `
       urlLabel: 'Target URL',
       outLabel: 'Save location for ui-changes.md',
       fwdLabel: 'Forward API hosts (optional, against CORS errors)',
+      fwdAutoHint: function (site) { return 'Hosts under ' + site + ' are forwarded automatically.'; },
       caLabel: 'CA certificate (optional, for internal HTTPS servers)',
       caNone: 'No certificate',
       caReadError: 'Could not read the certificate file.',
@@ -141,6 +142,7 @@ const SCRIPT = `
       urlLabel: 'Ziel-URL',
       outLabel: 'Speicherort für ui-changes.md',
       fwdLabel: 'API-Hosts weiterleiten (optional, gegen CORS-Fehler)',
+      fwdAutoHint: function (site) { return 'Hosts unter ' + site + ' werden automatisch weitergeleitet.'; },
       caLabel: 'CA-Zertifikat (optional, für interne HTTPS-Server)',
       caNone: 'Kein Zertifikat',
       caReadError: 'Zertifikatsdatei konnte nicht gelesen werden.',
@@ -174,6 +176,7 @@ const SCRIPT = `
   var outDirInput = document.getElementById('uce-outdir');
   var fwdInput = document.getElementById('uce-fwd');
   var fwdLabelEl = document.getElementById('uce-fwd-label');
+  var fwdHintEl = document.getElementById('uce-fwd-hint');
   var caLabelEl = document.getElementById('uce-ca-label');
   var caNameEl = document.getElementById('uce-ca-name');
   var caFileInput = document.getElementById('uce-ca-file');
@@ -222,6 +225,7 @@ const SCRIPT = `
     urlLabelEl.textContent = s.urlLabel;
     outLabelEl.textContent = s.outLabel;
     fwdLabelEl.textContent = s.fwdLabel;
+    renderFwdHint();
     caLabelEl.textContent = s.caLabel;
     caChooseBtn.textContent = s.chooseBtn;
     caRemoveBtn.textContent = s.removeTitle;
@@ -239,6 +243,25 @@ const SCRIPT = `
     langDeBtn.classList.toggle('uce-lang-active', lang === 'de');
     renderRecent();
     applyUpdateBanner();
+  }
+
+  // Same rule as siteOf() in server.js: hosts sharing the last two DNS labels of
+  // the target are forwarded automatically (not for loopback hosts, IPs, single labels).
+  function siteOf(hostname) {
+    var h = hostname.toLowerCase().replace(/\\.$/, '');
+    if (!h || h === 'localhost' || /\\.localhost$/.test(h) || h.indexOf(':') !== -1 || h.charAt(0) === '[' || /^[0-9.]+$/.test(h)) return null;
+    var labels = h.split('.');
+    return labels.length < 2 ? null : labels.slice(-2).join('.');
+  }
+
+  function renderFwdHint() {
+    var s = STRINGS[lang] || STRINGS.en;
+    var raw = urlInput.value.trim() || initial.target || '';
+    var site = null;
+    try {
+      if (raw) site = siteOf(new URL(raw.indexOf('://') === -1 ? 'http://' + raw : raw).hostname);
+    } catch (e) {}
+    fwdHintEl.textContent = site ? s.fwdAutoHint(site) : '';
   }
 
   function isMac() {
@@ -316,6 +339,7 @@ const SCRIPT = `
     applyLang(next);
   }
 
+  urlInput.addEventListener('input', renderFwdHint);
   outDirInput.value = initial.outDir || '';
   fwdInput.value = (initial.forwardHosts || []).join(', ');
   stateOutEl.textContent = initial.out || '';
@@ -595,6 +619,7 @@ export function launcherHtml(state) {
       <div class="uce-pickdir-hint" id="uce-pickdir-hint"></div>
       <label for="uce-fwd" id="uce-fwd-label">Forward API hosts (optional, against CORS errors)</label>
       <input type="text" id="uce-fwd" name="forwardHosts" autocomplete="off" placeholder="api-dev.example.com, auth.example.com">
+      <div class="uce-pickdir-hint" id="uce-fwd-hint"></div>
       <label for="uce-ca-choose" id="uce-ca-label">CA certificate (optional, for internal HTTPS servers)</label>
       <div class="uce-row">
         <span class="uce-ca-name" id="uce-ca-name" data-empty="1">No certificate</span>

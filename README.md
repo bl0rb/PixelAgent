@@ -82,7 +82,8 @@ page with a field for the target URL (also works without `http://`, e.g.
 `localhost:3000`), a field for the `ui-changes.md` save location with a "Choose…" button that
 opens the native folder dialog (macOS, Windows, Linux with zenity/kdialog),
 optional "Forward API hosts" (same as `--forward-host`, against CORS errors from
-a remote dev API) and "CA certificate" fields (a PEM or DER file, e.g. your
+a remote dev API; hosts under the target's site are forwarded automatically,
+and a hint under the field says so) and "CA certificate" fields (a PEM or DER file, e.g. your
 company's root CA, so nudgit trusts internal HTTPS servers; stored in the
 browser and sent along with "Open"),
 recently used URLs (each remembers its save location and forwarded hosts), and the "Open" / "Quit" buttons. "Open" sets the target and
@@ -235,14 +236,36 @@ it (selector, HTML snippet, breadcrumb).
    the upstream host and rewrites `Origin`/`Referer` to the target's origin
    (what the backend's CORS/CSRF checks expect), streams the response
    (SSE/chat streaming works), and rewrites `Location`/`Set-Cookie` back to
-   the fwd path. Only loopback hosts (`localhost`, `*.localhost`,
-   `127.0.0.0/8`, `::1`), a host matching the target's own hostname or a host
-   passed with `--forward-host` are forwarded; anything else gets a 403.
+   the fwd path. Forwarded automatically: loopback hosts (`localhost`,
+   `*.localhost`, `127.0.0.0/8`, `::1`), the target's own hostname and every
+   host under the target's site, i.e. sharing its last two DNS labels (target
+   `paddledoc-dev.stg.eks.aws.hanse-merkur.de` -> `*.hanse-merkur.de`; not for
+   loopback or IP targets). Known limitation: for two-part public suffixes
+   (`co.uk`, `com.au`, ...) the "site" is the suffix itself, so every host
+   under it counts; list hosts explicitly (and use a narrower target) if that
+   matters. Other hosts need `--forward-host` (or the launcher field, or the
+   one-click notice below); anything else gets a 403.
    Example: an app on `http://localhost:4200` calling
    `https://api-dev.example.com` fails with "blocked by CORS policy" behind
    nudgit; `nudgit http://localhost:4200 --forward-host api-dev.example.com`
    fixes it (the API then sees `Origin: http://localhost:4200`, as without
    nudgit).
+
+   The forward-host list reaches the shim through the injected script tag, so
+   the page itself must never come from the browser cache: nudgit drops
+   `If-None-Match`/`If-Modified-Since` from page requests (no 304 that keeps
+   an old tag) and serves injected HTML with `Cache-Control: no-store` and
+   without `ETag`/`Last-Modified`. (A copy cached by an older nudgit version
+   needs one hard reload.)
+
+   If a cross-origin request the shim does not route through nudgit fails
+   (`fetch` rejects with a `TypeError`, XHR `error`, `EventSource` error before
+   open), the shim fires a `nudgit:forward-blocked` event (`{ host }`, once per
+   host) without touching the app's own error handling, and the overlay shows
+   a notice next to the toolbar: "The app calls <host>, which the browser blocks
+   (CORS). Forward it through nudgit?". "Forward" adds the host
+   (`POST /__uce/forward-host`) and reloads the page; "Ignore" hides it for that
+   host for the browser session. The list is kept in memory until nudgit quits.
 
 ### Security note
 
@@ -251,7 +274,7 @@ can reach it can browse the target app through it (without its CSP /
 X-Frame-Options), switch the target and write `ui-changes.md`, so only expose
 it on a trusted network.
 
-Cross-origin requests to `/__uce/*` (export, target, quit) are rejected: the
+Cross-origin requests to `/__uce/*` (export, target, forward-host, quit) are rejected: the
 proxy checks the `Origin`/`Sec-Fetch-Site` headers and only accepts requests
 from its own origin.
 
