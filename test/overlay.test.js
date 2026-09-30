@@ -66,6 +66,8 @@ test('overlay bootstraps its shadow UI and previews a dispatched text change', a
     const ctx = /** @type {any} */ (window).__uceOverlay;
     assert.ok(ctx, 'overlay should expose its context via window.__uceOverlay for testing');
     assert.equal(ctx.getState().changes.length, 0, 'no persisted changes on a fresh page');
+    assert.equal(ctx.extensionMode, false, 'a plain module URL is not extension mode');
+    assert.equal(ctx.isVisible(), true);
 
     const button = window.document.getElementById('save-btn');
     assert.ok(button, 'demo button should exist');

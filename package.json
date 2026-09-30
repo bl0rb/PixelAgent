@@ -13,6 +13,7 @@
     "test": "node --test",
     "demo": "node examples/serve.js",
     "app": "node scripts/make-app.js",
+    "extension": "node scripts/make-extension.js",
     "screenshots": "node scripts/make-screenshots.js"
   },
   "repository": {

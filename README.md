@@ -137,6 +137,47 @@ Add to the target app's HTML file:
 ```
 Export then happens as a download instead of a file write.
 
+## Browser extension (Chrome / Edge)
+
+The proxy rewrites the page it serves, which breaks apps whose login
+depends on the real origin: SSO (Microsoft/Entra, Okta, ...) redirects to
+the real API host and the session lives there. The extension runs the same
+overlay **directly on the real page** – no proxy, nothing rewritten. Use it
+for SSO and remote apps; use the proxy (or the app) when `ui-changes.md`
+should be written straight into the target repo.
+
+**Install**
+
+1. Download `nudgit-chrome-extension.zip` from the
+   [Releases](https://github.com/bl0rb/nudgit/releases) (or build it with
+   `npm run extension` → `dist/nudgit-chrome-extension.zip`) and unzip it.
+2. Open `chrome://extensions` (Edge: `edge://extensions`), switch on
+   **Developer mode**, click **Load unpacked** and pick the unzipped folder.
+
+**Use**
+
+- Click the nudgit icon or press `Alt+Shift+N` (changeable at
+  `chrome://extensions/shortcuts`) on the tab you want to edit. The badge
+  shows `ON`; the toolbar is the same as everywhere else.
+- Icon, shortcut or the toolbar's `×` hide nudgit again. Changes stay in the
+  page's `localStorage`, so showing it again restores them.
+- **Export** opens the browser's Save dialog for `ui-changes.md` (there is no
+  repo to write to); **Import** reads a saved file ("Choose file...").
+- After a reload nudgit re-attaches by itself as long as Chrome still grants
+  access to the tab; after a redirect to another origin (SSO) click the icon
+  again. It cannot run on `chrome://` pages or the Chrome Web Store.
+
+**Permissions**
+
+| Permission | Why |
+|---|---|
+| `activeTab` | Access to a tab only after you click the icon or use the shortcut. There are no host permissions; nudgit never runs on pages you did not activate. |
+| `scripting` | Injects nudgit into that tab. |
+| `storage` | Remembers for the browser session which tabs have nudgit on (to re-attach after reloads). |
+| `downloads` | Saves `ui-changes.md` through the Save dialog. |
+
+Nothing is sent anywhere; the extension has no network access of its own.
+
 ## Usage
 
 ### Modes
@@ -182,7 +223,7 @@ button clears the list.
 ### Export
 
 - With proxy: `POST /__uce/export` → file in the target repo
-- Without proxy: download dialog
+- Without proxy: download dialog (browser extension: Save dialog)
 - Also available: "Export / Copy" to copy to the clipboard
 
 ### Import
@@ -324,7 +365,8 @@ implementation status in the chat.
 
 The icon sources are `assets/icon.svg` (web/product icon) and
 `assets/icon-macos.svg` (macOS app icon). `scripts/make-icons.sh` regenerates
-`assets/nudgit.icns` and `assets/icon-512.png` (macOS: `sips` + `iconutil`).
+`assets/nudgit.icns`, `assets/icon-512.png` and the extension's
+`extension/icons/` (macOS: `sips` + `iconutil`).
 
 ## Screenshots (development)
 

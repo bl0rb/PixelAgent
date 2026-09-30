@@ -17,5 +17,10 @@ sips -s format png -z 512 512 icon.svg --out icon-512.png >/dev/null
 cp icon.svg ../src/proxy/static/icon.svg
 sips -s format png -z 32 32 icon.svg --out ../src/proxy/static/favicon-32.png >/dev/null
 sips -s format png -z 180 180 icon.svg --out ../src/proxy/static/apple-touch-icon.png >/dev/null
+# browser extension icons (manifest icons + toolbar action)
+mkdir -p ../extension/icons
+for s in 16 32 48 128; do
+  sips -s format png -z "$s" "$s" icon.svg --out "../extension/icons/icon-${s}.png" >/dev/null
+done
 rm -rf "$tmp"
 echo "Icons written to $(pwd)"

@@ -27,6 +27,7 @@ const MESSAGES = {
     'toolbar.discardAll': 'Discard all',
     'toolbar.discardConfirm': 'Really discard all changes?',
     'toolbar.changeUrl': 'Change URL',
+    'toolbar.close': 'Close nudgit',
     'toolbar.language': 'Language',
 
     'import.chooseFile': 'Choose file…',
@@ -119,6 +120,7 @@ const MESSAGES = {
     'toolbar.discardAll': 'Alles verwerfen',
     'toolbar.discardConfirm': 'Alle Änderungen wirklich verwerfen?',
     'toolbar.changeUrl': 'Andere URL',
+    'toolbar.close': 'nudgit schließen',
     'toolbar.language': 'Sprache',
 
     'import.chooseFile': 'Datei wählen…',

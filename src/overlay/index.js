@@ -11,6 +11,8 @@ import { sync as previewSync, withOriginalDom } from './preview.js';
 import { createPositionTracker } from './position-tracker.js';
 import { openPalettePopover } from './palette-popover.js';
 import { openImportPopover } from './import-popover.js';
+import { runAction } from './actions/index.js';
+import { detectExtensionMode, downloadViaExtension, notifyVisibility } from './extension.js';
 import { t } from './i18n.js';
 
 /**
@@ -28,6 +30,7 @@ import { t } from './i18n.js';
  * @property {HTMLElement} host
  * @property {HTMLElement} layer - the full-viewport overlay layer, for mounting transient UI (popovers, ...)
  * @property {boolean} proxyMode
+ * @property {boolean} extensionMode - running as a browser-extension content script (no proxy; the page is the target)
  * @property {string} targetOrigin
  * @property {() => string} getLocatorUrl
  * @property {(el: Element) => Locator} createLocator
@@ -48,6 +51,8 @@ import { t } from './i18n.js';
  * @property {() => void} openImportPopover
  * @property {(entry: import('./palette.js').PaletteEntry) => void} startPlaceMode
  * @property {() => void} resync
+ * @property {() => boolean} isVisible
+ * @property {(visible: boolean) => void} setVisible - hide = Interact mode + DOM preview reverted + host hidden; show = unhide + full re-render
  */
 
 /**
@@ -64,6 +69,7 @@ function initOverlay() {
   // --- proxy detection (contract: overlay script URL carries ?target=) ---
   const overlayUrl = new URL(import.meta.url);
   const proxyMode = overlayUrl.pathname.startsWith('/__uce/');
+  const extensionMode = detectExtensionMode(import.meta.url);
   const targetParam = overlayUrl.searchParams.get('target');
   const targetHref = targetParam || location.href;
   let targetOrigin = location.origin;
@@ -121,6 +127,7 @@ function initOverlay() {
   /** @type {Element|null} */
   let editingElement = null;
   let panelVisible = false;
+  let overlayVisible = true;
   /** @type {import('./preview.js').PreviewResult[]} */
   let lastPreviewResults = [];
 
@@ -148,6 +155,7 @@ function initOverlay() {
    * "Re-apply").
    */
   function renderFull() {
+    if (!overlayVisible) return; // hidden: the page stays untouched until shown again
     lastPreviewResults = previewSync(state.changes, document);
     renderUiOnly();
   }
@@ -168,6 +176,7 @@ function initOverlay() {
     host,
     layer,
     proxyMode,
+    extensionMode,
     targetOrigin,
     getLocatorUrl,
     createLocator: (el) => withOriginalDom(() => createLocator(el, { url: getLocatorUrl() })),
@@ -211,6 +220,23 @@ function initOverlay() {
     openImportPopover: () => openImportPopover(ctx),
     startPlaceMode: (entry) => selectionApi.startPlaceMode(entry),
     resync: () => renderFull(),
+    isVisible: () => overlayVisible,
+    setVisible: (visible) => {
+      const next = Boolean(visible);
+      if (next === overlayVisible) return;
+      overlayVisible = next;
+      if (next) {
+        host.style.removeProperty('display');
+        renderFull();
+      } else {
+        if (editingElement) runAction('text-commit', ctx, editingElement);
+        ctx.setMode('view');
+        selectionApi.cancelPlaceMode();
+        lastPreviewResults = previewSync([], document);
+        host.style.setProperty('display', 'none', 'important');
+      }
+      if (extensionMode) void notifyVisibility(globalThis.chrome, next);
+    },
   };
 
   const toolbarApi = createToolbar(ctx);
@@ -274,6 +300,14 @@ function initOverlay() {
       if (proxyMode) {
         const path = await postExport('/__uce/export', md);
         ctx.toast(t('toast.saved', { name: path }));
+      } else if (extensionMode) {
+        try {
+          const { canceled } = await downloadViaExtension(globalThis.chrome, md);
+          if (canceled) return;
+        } catch {
+          downloadMarkdown(md, 'ui-changes.md');
+        }
+        ctx.toast(t('toast.downloaded'));
       } else {
         downloadMarkdown(md, 'ui-changes.md');
         ctx.toast(t('toast.downloaded'));
@@ -303,6 +337,15 @@ function initOverlay() {
   // events (jsdom has no layout engine). Not part of the module's contract.
   if (typeof window !== 'undefined') {
     /** @type {any} */ (window).__uceOverlay = ctx;
+  }
+
+  // Extension content-script loader (extension/content/loader.js) toggles the
+  // overlay through this, in the same isolated world; returns the new state.
+  if (extensionMode) {
+    /** @type {any} */ (window).__nudgitToggle = () => {
+      ctx.setVisible(!overlayVisible);
+      return overlayVisible;
+    };
   }
 
   renderFull();
