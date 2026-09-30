@@ -78,7 +78,16 @@ export function createToolbar(ctx) {
     });
     body.append(sep(doc), otherUrlBtn);
   }
-  el.append(handle, collapseBtn, body);
+  el.append(handle, collapseBtn);
+  if (ctx.extensionMode) {
+    // Hides the overlay (same as the extension icon / shortcut); stays
+    // reachable while the toolbar is collapsed.
+    const closeBtn = button(doc, '×', () => ctx.setVisible(false));
+    closeBtn.title = t('toolbar.close');
+    closeBtn.setAttribute('aria-label', t('toolbar.close'));
+    el.append(closeBtn);
+  }
+  el.append(body);
 
   // --- dragging (handle only) ---
   let dragging = false;
@@ -123,6 +132,7 @@ export function createToolbar(ctx) {
   // never while typing anywhere (not just inside the overlay) ---
   win.addEventListener('keydown', (e) => {
     if (e.key !== 'e' && e.key !== 'E') return;
+    if (!ctx.isVisible()) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if (ctx.getMode() !== 'view') return;
     if (isEditableTarget(doc.activeElement)) return;

@@ -44,6 +44,9 @@ jobs:
       - name: Package app bundle
         run: ditto -c -k --keepParent dist/nudgit.app nudgit-macos.zip
 
+      - name: Build Chrome extension
+        run: npm run extension
+
       - name: Create release
         shell: bash
         run: |
@@ -70,3 +73,6 @@ jobs:
 
       - name: Upload app bundle to release
         run: gh release upload "$GITHUB_REF_NAME" nudgit-macos.zip --clobber
+
+      - name: Upload Chrome extension to release
+        run: gh release upload "$GITHUB_REF_NAME" dist/nudgit-chrome-extension.zip --clobber
